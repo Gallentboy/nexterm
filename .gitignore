@@ -1,0 +1,20 @@
+# Rust
+/target
+Cargo.lock
+
+# 数据库文件
+*.db
+*.db-shm
+*.db-wal
+
+# 环境变量
+.env
+
+# 数据目录
+/data/
+
+# IDE
+.idea/
+*.iml
+.vscode/
+.claude/

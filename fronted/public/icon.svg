@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="bg-gradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#1e40af;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#06b6d4;stop-opacity:1" />
+    </linearGradient>
+  </defs>
+  
+  <!-- Background with rounded corners -->
+  <rect width="512" height="512" rx="115" fill="url(#bg-gradient)"/>
+  
+  <!-- SSH Key symbol -->
+  <g transform="translate(256, 256)">
+    <!-- Key head (circle with terminal prompt) -->
+    <circle cx="0" cy="40" r="70" fill="white"/>
+    <text x="-25" y="60" font-family="monospace" font-size="48" font-weight="bold" fill="#1e40af">&gt;_</text>
+    
+    <!-- Key shaft -->
+    <rect x="-15" y="-100" width="30" height="140" fill="white"/>
+    
+    <!-- Key teeth -->
+    <polygon points="-15,-100 35,-100 35,-70 15,-70 15,-85 -15,-85" fill="white"/>
+    
+    <!-- Arrow pointing right (connection symbol) -->
+    <path d="M 50,-80 L 100,-80 L 100,-100 L 140,-60 L 100,-20 L 100,-40 L 50,-40 Z" fill="white"/>
+  </g>
+</svg>
