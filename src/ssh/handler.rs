@@ -15,6 +15,39 @@ use tracing::{error, info, warn};
 
 type SshSession = crate::ssh::session::Session;
 
+/// SSH 会话守卫,确保连接总是被关闭
+struct SshSessionGuard {
+    handle: Option<client::Handle<crate::ssh::session::Client>>,
+}
+
+impl SshSessionGuard {
+    fn new(handle: client::Handle<crate::ssh::session::Client>) -> Self {
+        Self {
+            handle: Some(handle),
+        }
+    }
+
+    fn get(&self) -> &client::Handle<crate::ssh::session::Client> {
+        self.handle.as_ref().expect("SSH session already closed")
+    }
+}
+
+impl Drop for SshSessionGuard {
+    fn drop(&mut self) {
+        if let Some(handle) = self.handle.take() {
+            info!("正在关闭 SSH 连接...");
+            tokio::spawn(async move {
+                if let Err(e) = handle.disconnect(Disconnect::ByApplication, "", "").await {
+                    error!("关闭 SSH 连接失败: {}", e);
+                } else {
+                    info!("SSH 连接已关闭");
+                }
+            });
+        }
+    }
+}
+
+
 //noinspection ALL
 /// WebSocket 连接处理
 ///
@@ -107,15 +140,15 @@ pub async fn handle_socket(mut socket: WebSocket, session: Session, state: crate
         }
     };
 
-    let session_handle = ssh_session.session;
+    // 使用 Guard 确保连接总是被关闭
+    let session_guard = SshSessionGuard::new(ssh_session.session);
+    let session_handle = session_guard.get();
+    
     let mut channel = match session_handle.channel_open_session().await {
         Ok(c) => c,
         Err(e) => {
             let _ = send_error(&mut socket, format!("打开通道失败: {}", e)).await;
-            let _ = session_handle
-                .disconnect(Disconnect::ByApplication, "", "")
-                .await;
-            return;
+            return;  // Guard 会自动清理
         }
     };
 
@@ -134,9 +167,6 @@ pub async fn handle_socket(mut socket: WebSocket, session: Session, state: crate
         Ok(_) => {}
         Err(e) => {
             let _ = send_error(&mut socket, format!("请求pty失败: {}", e)).await;
-            let _ = session_handle
-                .disconnect(Disconnect::ByApplication, "", "")
-                .await;
             return;
         }
     }
@@ -152,9 +182,6 @@ pub async fn handle_socket(mut socket: WebSocket, session: Session, state: crate
         Ok(_) => {}
         Err(e) => {
             let _ = send_error(&mut socket, format!("请求shell失败: {}", e)).await;
-            let _ = session_handle
-                .disconnect(Disconnect::ByApplication, "", "")
-                .await;
             return;
         }
     }
@@ -217,7 +244,7 @@ pub async fn handle_socket(mut socket: WebSocket, session: Session, state: crate
             ssh_msg = timeout(Duration::from_millis(50), channel.wait()) => {
                 match ssh_msg {
                     Ok(Some(ChannelMsg::Data { ref data })) => {
-                        match ws_tx.send(Message::Binary(Bytes::from_owner(data.to_vec()))).await {
+                        match ws_tx.send(Message::Binary(Bytes::copy_from_slice(data))).await {
                             Ok(_) => {}
                             Err(error) => {
                                 error!("无法向客户端发送消息: {}", error);
@@ -226,7 +253,7 @@ pub async fn handle_socket(mut socket: WebSocket, session: Session, state: crate
                         }
                     }
                     Ok(Some(ChannelMsg::ExtendedData { ref data, .. })) => {
-                        match ws_tx.send(Message::Binary(Bytes::from_owner(data.to_vec()))).await {
+                        match ws_tx.send(Message::Binary(Bytes::copy_from_slice(data))).await {
                             Ok(_) => {}
                             Err(error) => {
                                 error!("无法向客户端发送消息: {}", error);
@@ -249,13 +276,7 @@ pub async fn handle_socket(mut socket: WebSocket, session: Session, state: crate
         }
     }
     
-    // 清理资源
-    let _ = session_handle
-        .disconnect(Disconnect::ByApplication, "", "")
-        .await;
-    
-    // 显式drop以确保资源释放
-    drop(session_handle);
+    info!("SSH 会话结束");
 }
 
 #[inline(always)]
