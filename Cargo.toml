@@ -17,7 +17,6 @@ log = "0.4.29"
 
 # 异步运行时 - 使用 rustls
 tokio = { version = "1.49.0", features = ["full"] }
-tokio-fd = "0.3.0"
 
 # 序列化
 serde = { version = "1.0.228", features = ["derive"] }

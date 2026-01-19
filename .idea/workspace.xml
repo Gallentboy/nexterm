@@ -11,11 +11,7 @@
     </cargoProject>
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="c700b9d1-2a97-4d3d-88b6-9df02b6e1fe0" name="Changes" comment="init commit">
-      <change beforePath="$PROJECT_DIR$/fronted/src/utils/debug.ts" beforeDir="false" afterPath="$PROJECT_DIR$/fronted/src/utils/debug.ts" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/sftp/handler.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/sftp/handler.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/ssh/handler.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/ssh/handler.rs" afterDir="false" />
-    </list>
+    <list default="true" id="c700b9d1-2a97-4d3d-88b6-9df02b6e1fe0" name="Changes" comment="init commit" />
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
     <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
@@ -132,7 +128,7 @@
       <workItem from="1768570267268" duration="178000" />
       <workItem from="1768570465126" duration="32000" />
       <workItem from="1768571107879" duration="21894000" />
-      <workItem from="1768799688184" duration="799000" />
+      <workItem from="1768799688184" duration="1705000" />
     </task>
     <task id="LOCAL-00001" summary="init commit">
       <option name="closed" value="true" />

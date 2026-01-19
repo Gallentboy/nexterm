@@ -34,10 +34,18 @@ impl FormatTime for LocalTime {
 ///   - `RUST_LOG=sc=trace` - 仅本项目 trace 级别
 ///   - `RUST_LOG=sc=debug,russh=info` - 多模块不同级别
 pub fn init() {
+    // Windows 下禁用颜色输出，避免终端显示 ANSI 转义序列
+    #[cfg(windows)]
+    let use_ansi = false;
+    
+    #[cfg(not(windows))]
+    let use_ansi = true;
+
     fmt()
         .with_env_filter(
             EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")),
         )
         .with_timer(LocalTime)
+        .with_ansi(use_ansi)
         .init();
 }
