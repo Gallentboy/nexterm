@@ -1,15 +1,13 @@
-use crate::sftp::session::client::Handler;
 use anyhow::{anyhow, Result};
 use russh::client;
 use russh_sftp::client::SftpSession;
 use std::path::Path;
-use std::sync::Arc;
 use tokio::net::ToSocketAddrs;
 
 /// SFTP 会话封装
 pub struct SftpConnection {
     pub sftp: SftpSession,
-    pub ssh_session: Arc<client::Handle<crate::ssh::session::Client>>,
+    pub ssh_session: client::Handle<crate::ssh::session::Client>,
 }
 
 impl SftpConnection {
@@ -48,7 +46,7 @@ impl SftpConnection {
 
         Ok(Self {
             sftp,
-            ssh_session: Arc::new(ssh_session.session),
+            ssh_session: ssh_session.session,
         })
     }
 
@@ -88,7 +86,7 @@ impl SftpConnection {
 
         Ok(Self {
             sftp,
-            ssh_session: Arc::new(ssh_session.session),
+            ssh_session: ssh_session.session,
         })
     }
 
@@ -97,15 +95,18 @@ impl SftpConnection {
     /// @author zhangyue
     /// @date 2026-01-16
     pub async fn close(self) -> Result<()> {
-        self.sftp
-            .close()
-            .await
-            .map_err(|e| anyhow!("关闭 SFTP 会话失败: {}", e))?;
+        // 先关闭SFTP会话
+        if let Err(e) = self.sftp.close().await {
+            tracing::warn!("关闭 SFTP 会话失败: {}", e);
+        }
 
-        self.ssh_session
+        // 断开SSH连接
+        if let Err(e) = self.ssh_session
             .disconnect(russh::Disconnect::ByApplication, "", "")
             .await
-            .map_err(|e| anyhow!("断开 SSH 连接失败: {}", e))?;
+        {
+            tracing::warn!("断开 SSH 连接失败: {}", e);
+        }
 
         Ok(())
     }

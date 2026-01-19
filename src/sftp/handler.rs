@@ -3,9 +3,8 @@ use anyhow::anyhow;
 use axum::extract::ws::{Message, WebSocket};
 use futures_util::{SinkExt, StreamExt};
 use russh::client;
-use russh_sftp::protocol::{FileAttributes, OpenFlags};
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
+
 use std::time::Duration;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tower_sessions::Session;
@@ -36,6 +35,8 @@ pub enum SftpClientCommand {
     UploadFileChunk { chunk_id: u64, data: Vec<u8> },
     /// 上传文件完成
     UploadFileEnd,
+    /// 取消上传
+    UploadFileCancel,
     /// 删除文件
     DeleteFile { path: String },
     /// 删除目录
@@ -129,6 +130,16 @@ impl UploadState {
         }
     }
 }
+
+/// 实现Drop确保文件句柄被释放
+impl Drop for UploadState {
+    fn drop(&mut self) {
+        if self.file.is_some() {
+            tracing::debug!("UploadState 被释放,文件: {}", self.path);
+        }
+    }
+}
+
 
 /// SFTP WebSocket 处理器
 ///
@@ -243,7 +254,7 @@ pub async fn handle_sftp_socket(mut socket: WebSocket, session: Session, state: 
                     {
                         error!("处理 SFTP 命令失败: {}", e);
                         let _ = send_sftp_error(&mut socket, e.to_string()).await;
-                        // 清理上传状态
+                        // 清理上传状态(Drop trait会自动释放资源)
                         upload_state = None;
                     }
                 } else {
@@ -266,7 +277,10 @@ pub async fn handle_sftp_socket(mut socket: WebSocket, session: Session, state: 
         }
     }
 
-    // 6. 关闭连接
+    // 6. 清理可能残留的上传状态(Drop trait会自动释放资源)
+    drop(upload_state);
+
+    // 7. 关闭连接
     let _ = sftp_conn.close().await;
     let _ = socket
         .send(Message::Text(
@@ -369,9 +383,18 @@ async fn handle_sftp_command(
                 .await?;
 
             debug!("文件下载完成: {} ({} 块)", path, chunk_id);
+            
+            // 显式释放资源
+            drop(buffer);
+            drop(file);
         }
 
         SftpClientCommand::UploadFileStart { path, total_size } => {
+            // 检查是否已有活动的上传会话
+            if upload_state.is_some() {
+                return Err(anyhow!("已有活动的上传会话,请先完成或取消当前上传"));
+            }
+
             debug!("开始上传文件: {} ({} 字节)", path, total_size);
 
             let mut final_path = path.clone();
@@ -425,7 +448,7 @@ async fn handle_sftp_command(
             file.write_all(&data).await?;
             state.received += data.len() as u64;
 
-            info!(
+            debug!(
                 "接收文件块 #{}: {} 字节 ({}/{})",
                 chunk_id,
                 data.len(),
@@ -446,11 +469,11 @@ async fn handle_sftp_command(
         }
 
         SftpClientCommand::UploadFileEnd => {
-            let state = upload_state
+            let mut state = upload_state
                 .take()
                 .ok_or_else(|| anyhow!("没有活动的上传会话"))?;
 
-            if let Some(mut file) = state.file {
+            if let Some(ref mut file) = state.file {
                 file.sync_all().await?;
             }
 
@@ -464,7 +487,26 @@ async fn handle_sftp_command(
                     .into(),
                 ))
                 .await?;
+            
+            // state在这里自动drop,触发Drop trait释放资源
         }
+
+        SftpClientCommand::UploadFileCancel => {
+            if let Some(state) = upload_state.take() {
+                debug!("取消上传: {} ({}/{} 字节)", state.path, state.received, state.total_size);
+                // state会自动drop,释放文件句柄
+            }
+
+            socket
+                .send(Message::Text(
+                    serde_json::to_string(&SftpServerMessage::Success {
+                        message: "上传已取消".to_string(),
+                    })?
+                    .into(),
+                ))
+                .await?;
+        }
+
 
         SftpClientCommand::DeleteFile { path } => {
             debug!("删除文件: {}", path);
@@ -641,6 +683,11 @@ async fn handle_sftp_command(
                     .into(),
                 ))
                 .await?;
+            
+            // 显式释放资源
+            drop(buffer);
+            drop(local_file);
+            drop(remote_file);
         }
         SftpClientCommand::ReadFileContent { path } => {
             debug!("读取文件内容: {}", path);

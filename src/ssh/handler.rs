@@ -3,11 +3,11 @@ use crate::ssh::{ClientCommand, ServerMessage, SshConnectParams, SshMode};
 use anyhow::anyhow;
 use axum::body::Bytes;
 use axum::extract::ws::{Message, WebSocket};
-use axum::Error;
+
 use futures_util::{SinkExt, StreamExt};
 use russh::client::Msg;
 use russh::{client, Channel, ChannelMsg, Disconnect};
-use std::io::Read;
+
 use std::time::Duration;
 use tokio::time::timeout;
 use tower_sessions::Session;
@@ -248,9 +248,14 @@ pub async fn handle_socket(mut socket: WebSocket, session: Session, state: crate
             }
         }
     }
+    
+    // 清理资源
     let _ = session_handle
         .disconnect(Disconnect::ByApplication, "", "")
         .await;
+    
+    // 显式drop以确保资源释放
+    drop(session_handle);
 }
 
 #[inline(always)]
