@@ -11,14 +11,21 @@
     </cargoProject>
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="c700b9d1-2a97-4d3d-88b6-9df02b6e1fe0" name="Changes" comment="init commit" />
+    <list default="true" id="c700b9d1-2a97-4d3d-88b6-9df02b6e1fe0" name="Changes" comment="init commit">
+      <change beforePath="$PROJECT_DIR$/fronted/src/components/deployment/plan-editor.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/fronted/src/components/deployment/plan-editor.tsx" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/fronted/src/components/deployment/task-wizard.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/fronted/src/components/deployment/task-wizard.tsx" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/fronted/src/contexts/sftp-context.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/fronted/src/contexts/sftp-context.tsx" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/fronted/src/pages/sftp.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/fronted/src/pages/sftp.tsx" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/main.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/main.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/sftp/handler.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/sftp/handler.rs" afterDir="false" />
+    </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
     <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
     <option name="LAST_RESOLUTION" value="IGNORE" />
   </component>
   <component name="EmbeddingIndexingInfo">
-    <option name="cachedIndexableFilesCount" value="4418" />
+    <option name="cachedIndexableFilesCount" value="4419" />
   </component>
   <component name="ExecutionTargetManager" SELECTED_TARGET="RsBuildProfile:dev" />
   <component name="FileTemplateManagerImpl">
@@ -52,20 +59,20 @@
     <option name="hideEmptyMiddlePackages" value="true" />
     <option name="showLibraryContents" value="true" />
   </component>
-  <component name="PropertiesComponent"><![CDATA[{
-  "keyToString": {
-    "Cargo.Run nexterm.executor": "Run",
-    "Cargo.Run.executor": "Run",
-    "ModuleVcsDetector.initialDetectionPerformed": "true",
-    "RunOnceActivity.MCP Project settings loaded": "true",
-    "RunOnceActivity.TerminalTabsStorage.copyFrom.TerminalArrangementManager.252": "true",
-    "RunOnceActivity.git.unshallow": "true",
-    "git-widget-placeholder": "main",
-    "kotlin-language-version-configured": "true",
-    "org.rust.cargo.project.model.PROJECT_DISCOVERY": "true",
-    "settings.editor.selected.configurable": "ml.llm.LLMThirdPartyAiProvidersConfigurable"
+  <component name="PropertiesComponent">{
+  &quot;keyToString&quot;: {
+    &quot;Cargo.Run nexterm.executor&quot;: &quot;Run&quot;,
+    &quot;Cargo.Run.executor&quot;: &quot;Run&quot;,
+    &quot;ModuleVcsDetector.initialDetectionPerformed&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.MCP Project settings loaded&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.TerminalTabsStorage.copyFrom.TerminalArrangementManager.252&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.git.unshallow&quot;: &quot;true&quot;,
+    &quot;git-widget-placeholder&quot;: &quot;main&quot;,
+    &quot;kotlin-language-version-configured&quot;: &quot;true&quot;,
+    &quot;org.rust.cargo.project.model.PROJECT_DISCOVERY&quot;: &quot;true&quot;,
+    &quot;settings.editor.selected.configurable&quot;: &quot;ml.llm.LLMThirdPartyAiProvidersConfigurable&quot;
   }
-}]]></component>
+}</component>
   <component name="RunManager" selected="Cargo.Run nexterm">
     <configuration name="Run nexterm" type="CargoCommandRunConfiguration" factoryName="Cargo Command" temporary="true">
       <option name="command" value="run --package nexterm --bin nexterm" />
@@ -129,6 +136,7 @@
       <workItem from="1768570465126" duration="32000" />
       <workItem from="1768571107879" duration="21894000" />
       <workItem from="1768799688184" duration="1707000" />
+      <workItem from="1768814872802" duration="361000" />
     </task>
     <task id="LOCAL-00001" summary="init commit">
       <option name="closed" value="true" />

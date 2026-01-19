@@ -118,6 +118,7 @@ struct UploadState {
     total_size: u64,
     received: u64,
     file: Option<russh_sftp::client::fs::File>,
+    last_activity: std::time::Instant,
 }
 
 impl UploadState {
@@ -127,7 +128,18 @@ impl UploadState {
             total_size,
             received: 0,
             file: None,
+            last_activity: std::time::Instant::now(),
         }
+    }
+
+    /// 更新最后活动时间
+    fn update_activity(&mut self) {
+        self.last_activity = std::time::Instant::now();
+    }
+
+    /// 检查是否超时 (5分钟无活动)
+    fn is_timeout(&self) -> bool {
+        self.last_activity.elapsed() > Duration::from_secs(300)
     }
 }
 
@@ -135,11 +147,42 @@ impl UploadState {
 impl Drop for UploadState {
     fn drop(&mut self) {
         if self.file.is_some() {
-            tracing::debug!("UploadState 被释放,文件: {}", self.path);
+            debug!("UploadState 被释放,文件: {}", self.path);
+            let _ = self.file.take().unwrap();
         }
     }
 }
 
+/// SFTP 连接守卫,确保连接总是被关闭
+struct SftpConnectionGuard {
+    conn: Option<SftpConnection>,
+}
+
+impl SftpConnectionGuard {
+    fn new(conn: SftpConnection) -> Self {
+        Self { conn: Some(conn) }
+    }
+
+    fn get_mut(&mut self) -> &mut SftpConnection {
+        self.conn.as_mut().expect("SFTP connection already closed")
+    }
+}
+
+impl Drop for SftpConnectionGuard {
+    fn drop(&mut self) {
+        if let Some(conn) = self.conn.take() {
+            tracing::info!("正在关闭 SFTP 连接...");
+            // 在 Drop 中不能使用 async,所以使用 tokio::spawn
+            tokio::spawn(async move {
+                if let Err(e) = conn.close().await {
+                    tracing::error!("关闭 SFTP 连接失败: {}", e);
+                } else {
+                    tracing::info!("SFTP 连接已关闭");
+                }
+            });
+        }
+    }
+}
 
 /// SFTP WebSocket 处理器
 ///
@@ -214,7 +257,7 @@ pub async fn handle_sftp_socket(mut socket: WebSocket, session: Session, state: 
     };
 
     // 3. 建立 SFTP 连接
-    let mut sftp_conn = match SftpConnection::connect_by_password(
+    let sftp_conn = match SftpConnection::connect_by_password(
         username.clone(),
         password.clone(),
         format!("{}:{}", host, port),
@@ -228,6 +271,9 @@ pub async fn handle_sftp_socket(mut socket: WebSocket, session: Session, state: 
             return;
         }
     };
+
+    // 使用 Guard 确保连接总是被关闭
+    let mut sftp_guard = SftpConnectionGuard::new(sftp_conn);
 
     info!("SFTP 连接成功");
 
@@ -245,12 +291,28 @@ pub async fn handle_sftp_socket(mut socket: WebSocket, session: Session, state: 
 
     // 6. 处理命令循环
     while let Some(msg) = socket.recv().await {
+        // 检查上传超时
+        if let Some(ref state) = upload_state {
+            if state.is_timeout() {
+                warn!(
+                    "上传超时,自动清理: {} ({}/{} 字节)",
+                    state.path, state.received, state.total_size
+                );
+                upload_state = None;
+                let _ = send_sftp_error(&mut socket, "上传超时,已自动取消".to_string()).await;
+            }
+        }
+
         match msg {
             Ok(Message::Text(text)) => {
                 if let Ok(cmd) = serde_json::from_str::<SftpClientCommand>(&text) {
-                    if let Err(e) =
-                        handle_sftp_command(&mut sftp_conn, &mut socket, cmd, &mut upload_state)
-                            .await
+                    if let Err(e) = handle_sftp_command(
+                        sftp_guard.get_mut(),
+                        &mut socket,
+                        cmd,
+                        &mut upload_state,
+                    )
+                    .await
                     {
                         error!("处理 SFTP 命令失败: {}", e);
                         let _ = send_sftp_error(&mut socket, e.to_string()).await;
@@ -277,11 +339,10 @@ pub async fn handle_sftp_socket(mut socket: WebSocket, session: Session, state: 
         }
     }
 
-    // 6. 清理可能残留的上传状态(Drop trait会自动释放资源)
+    // 7. 清理上传状态(Drop trait会自动释放资源)
     drop(upload_state);
 
-    // 7. 关闭连接
-    let _ = sftp_conn.close().await;
+    // 8. 发送关闭消息
     let _ = socket
         .send(Message::Text(
             serde_json::to_string(&SftpServerMessage::Closed)
@@ -289,6 +350,9 @@ pub async fn handle_sftp_socket(mut socket: WebSocket, session: Session, state: 
                 .into(),
         ))
         .await;
+
+    // sftp_guard 会在这里自动 Drop,触发连接关闭
+    info!("SFTP 会话结束");
 }
 
 /// 处理 SFTP 命令
@@ -383,7 +447,7 @@ async fn handle_sftp_command(
                 .await?;
 
             debug!("文件下载完成: {} ({} 块)", path, chunk_id);
-            
+
             // 显式释放资源
             drop(buffer);
             drop(file);
@@ -397,7 +461,7 @@ async fn handle_sftp_command(
 
             debug!("开始上传文件: {} ({} 字节)", path, total_size);
 
-            let mut final_path = path.clone();
+            let final_path = path.clone();
 
             // 检查远程路径是否为目录
             if let Ok(metadata) = sftp_conn.sftp.metadata(&path).await {
@@ -448,6 +512,9 @@ async fn handle_sftp_command(
             file.write_all(&data).await?;
             state.received += data.len() as u64;
 
+            // 更新活动时间
+            state.update_activity();
+
             debug!(
                 "接收文件块 #{}: {} 字节 ({}/{})",
                 chunk_id,
@@ -487,13 +554,16 @@ async fn handle_sftp_command(
                     .into(),
                 ))
                 .await?;
-            
+
             // state在这里自动drop,触发Drop trait释放资源
         }
 
         SftpClientCommand::UploadFileCancel => {
             if let Some(state) = upload_state.take() {
-                debug!("取消上传: {} ({}/{} 字节)", state.path, state.received, state.total_size);
+                debug!(
+                    "取消上传: {} ({}/{} 字节)",
+                    state.path, state.received, state.total_size
+                );
                 // state会自动drop,释放文件句柄
             }
 
@@ -506,7 +576,6 @@ async fn handle_sftp_command(
                 ))
                 .await?;
         }
-
 
         SftpClientCommand::DeleteFile { path } => {
             debug!("删除文件: {}", path);
@@ -683,7 +752,7 @@ async fn handle_sftp_command(
                     .into(),
                 ))
                 .await?;
-            
+
             // 显式释放资源
             drop(buffer);
             drop(local_file);
@@ -691,7 +760,7 @@ async fn handle_sftp_command(
         }
         SftpClientCommand::ReadFileContent { path } => {
             debug!("读取文件内容: {}", path);
-            
+
             // 检查文件大小
             let metadata = sftp_conn.sftp.metadata(&path).await?;
             let size = metadata.size.unwrap_or(0);

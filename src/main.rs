@@ -21,7 +21,6 @@ use axum::http::{header, HeaderValue, Method, StatusCode, Uri};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{delete, get, post, put};
 use axum::{middleware, Router};
-use russh::keys::*;
 use rust_embed::RustEmbed;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 #[cfg(debug_assertions)]
@@ -242,7 +241,22 @@ async fn main() -> Result<()> {
         }
     };
 
-    axum::serve(listener, app).await.map_err(|e| anyhow!(e))
+    // 创建优雅关闭信号
+    let shutdown_signal = async {
+        tokio::signal::ctrl_c()
+            .await
+            .expect("无法安装 Ctrl+C 信号处理器");
+        info!("收到关闭信号,正在优雅关闭服务器...");
+    };
+
+    // 启动服务器并监听关闭信号
+    axum::serve(listener, app)
+        .with_graceful_shutdown(shutdown_signal)
+        .await
+        .map_err(|e| anyhow!(e))?;
+
+    info!("服务器已关闭");
+    Ok(())
 }
 
 // HTTP 路由处理器

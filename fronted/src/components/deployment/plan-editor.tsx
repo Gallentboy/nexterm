@@ -135,7 +135,7 @@ export default function PlanEditor({ open, onOpenChange, plan, onSave }: PlanEdi
 
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
-            <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+            <DialogContent className="max-w-7xl max-h-[90vh] overflow-y-auto">
                 <DialogHeader>
                     <DialogTitle>
                         {plan ? t('deployment.plans.edit') : t('deployment.plans.create')}

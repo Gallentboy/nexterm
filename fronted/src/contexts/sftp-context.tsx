@@ -29,6 +29,7 @@ export interface SFTPSession {
     uploadProgress: number;
     downloadingFileName: string | null;
     downloadProgress: number;
+    isUploading: boolean;  // 是否正在上传
 }
 
 interface SFTPContextType {
@@ -43,6 +44,7 @@ interface SFTPContextType {
     createDir: (sessionId: string, path: string) => void;
     rename: (sessionId: string, oldPath: string, newPath: string) => void;
     uploadFile: (sessionId: string, remotePath: string, file: File) => Promise<void>;
+    cancelUpload: (sessionId: string) => void;
     downloadFile: (sessionId: string, remotePath: string, fileName: string) => void;
     getFileBlob: (id: string, path: string) => Promise<Blob>;
     readFile: (sessionId: string, path: string) => Promise<string>;
@@ -70,6 +72,25 @@ export function SFTPProvider({ children }: { children: React.ReactNode }) {
         });
     }, []);
 
+    // 清理会话资源
+    const cleanupSession = useCallback((id: string) => {
+        debug.log('[SFTP] Cleaning up session:', id);
+
+        // 清理待处理的文件读取
+        const keysToDelete: string[] = [];
+        pendingReads.current.forEach((_, key) => {
+            if (key.startsWith(`${id}:`)) {
+                keysToDelete.push(key);
+            }
+        });
+        keysToDelete.forEach(key => pendingReads.current.delete(key));
+
+        // 清理下载回调
+        downloadCallbacks.current.delete(id);
+
+        debug.log('[SFTP] Session cleanup completed:', id);
+    }, []);
+
     const connect = useCallback(async (server: Server) => {
         const id = `sftp-${server.id}-${Date.now()}`;
 
@@ -89,6 +110,7 @@ export function SFTPProvider({ children }: { children: React.ReactNode }) {
             uploadProgress: 0,
             downloadingFileName: null,
             downloadProgress: 0,
+            isUploading: false,
         };
 
         setSessions(prev => ({ ...prev, [id]: session }));
@@ -213,8 +235,8 @@ export function SFTPProvider({ children }: { children: React.ReactNode }) {
                         }
                         break;
                     case 'success':
-                        if (msg.message === "文件上传成功") {
-                            updateSession(id, { uploadingFileName: null, uploadProgress: 0 });
+                        if (msg.message === "文件上传成功" || msg.message === "上传已取消") {
+                            updateSession(id, { uploadingFileName: null, uploadProgress: 0, isUploading: false });
                         }
                         if (msg.message === "文件保存成功") {
                             toast.success(msg.message, { duration: 300 });
@@ -229,10 +251,17 @@ export function SFTPProvider({ children }: { children: React.ReactNode }) {
                         break;
                     case 'error':
                         toast.error(msg.message);
-                        updateSession(id, { loading: false });
+                        // 错误时重置上传状态
+                        updateSession(id, {
+                            loading: false,
+                            isUploading: false,
+                            uploadingFileName: null,
+                            uploadProgress: 0
+                        });
                         break;
                     case 'closed':
                         updateSession(id, { status: 'disconnected' });
+                        cleanupSession(id);
                         break;
                     case 'file_content':
                         const readCallback = pendingReads.current.get(`${id}:${msg.path}`);
@@ -248,15 +277,19 @@ export function SFTPProvider({ children }: { children: React.ReactNode }) {
         };
 
         socket.onclose = () => {
+            debug.log('[SFTP] WebSocket closed for session:', id);
             updateSession(id, { status: 'disconnected' });
+            cleanupSession(id);
         };
 
         socket.onerror = () => {
+            debug.log('[SFTP] WebSocket error for session:', id);
             updateSession(id, { status: 'disconnected' });
             toast.error('SFTP 连接失败');
+            cleanupSession(id);
         };
 
-    }, [updateSession]);
+    }, [updateSession, cleanupSession]);
 
     const readFile = useCallback((id: string, path: string): Promise<string> => {
         return new Promise((resolve, reject) => {
@@ -314,20 +347,21 @@ export function SFTPProvider({ children }: { children: React.ReactNode }) {
     }, []);
 
     const disconnect = useCallback((id: string) => {
+        debug.log('[SFTP] Disconnecting session:', id);
         const session = sessionsRef.current[id];
         if (session?.socket) {
             session.socket.close();
         }
+        // 清理资源
+        cleanupSession(id);
+        // 从 sessions 中删除
         setSessions(prev => {
             const next = { ...prev };
             delete next[id];
             sessionsRef.current = next;
             return next;
         });
-        // if (activeSessionId === id) {
-        //     setActiveSessionIdState(null);
-        // }
-    }, [activeSessionId]);
+    }, [cleanupSession]);
 
     const listDir = (id: string, path: string) => {
         const session = sessionsRef.current[id];
@@ -365,53 +399,107 @@ export function SFTPProvider({ children }: { children: React.ReactNode }) {
         }
     };
 
-    const uploadFile = async (id: string, remotePath: string, file: File) => {
+    const cancelUpload = useCallback((id: string) => {
         const session = sessionsRef.current[id];
-        if (!session?.socket || session.socket.readyState !== WebSocket.OPEN) return;
+        if (session?.socket?.readyState === WebSocket.OPEN) {
+            session.socket.send(JSON.stringify({ type: 'upload_file_cancel' }));
+        }
+        updateSession(id, { isUploading: false, uploadingFileName: null, uploadProgress: 0 });
+    }, [updateSession]);
 
-        updateSession(id, { uploadingFileName: file.name, uploadProgress: 0 });
-
-        const CHUNK_SIZE = 1024 * 1024; // 1MB
-        const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
-
-        // 发送开始上传指令
-        session.socket.send(JSON.stringify({
-            type: 'upload_file_start',
-            path: remotePath,
-            total_size: file.size
-        }));
-
-        const reader = new FileReader();
-        let chunkId = 0;
-
-        const uploadNextChunk = () => {
-            if (chunkId >= totalChunks) {
-                session.socket?.send(JSON.stringify({ type: 'upload_file_end' }));
+    const uploadFile = async (id: string, remotePath: string, file: File): Promise<void> => {
+        return new Promise((resolve, reject) => {
+            const session = sessionsRef.current[id];
+            if (!session?.socket || session.socket.readyState !== WebSocket.OPEN) {
+                reject(new Error('WebSocket not connected'));
                 return;
             }
 
-            const start = chunkId * CHUNK_SIZE;
-            const end = Math.min(start + CHUNK_SIZE, file.size);
-            const blob = file.slice(start, end);
+            // 检查是否正在上传
+            if (session.isUploading) {
+                toast.error('已有文件正在上传,请等待完成');
+                reject(new Error('Upload in progress'));
+                return;
+            }
 
-            reader.onload = (e) => {
-                if (e.target?.result instanceof ArrayBuffer) {
-                    const data = Array.from(new Uint8Array(e.target.result));
-                    session.socket?.send(JSON.stringify({
-                        type: 'upload_file_chunk',
-                        chunk_id: chunkId,
-                        data
-                    }));
-                    chunkId++;
-                    // 添加小延迟让后端处理并返回进度
-                    setTimeout(uploadNextChunk, 50);
-                }
+            updateSession(id, { uploadingFileName: file.name, uploadProgress: 0, isUploading: true });
+
+            const CHUNK_SIZE = 1024 * 1024; // 1MB
+            const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
+
+            // 监听上传完成或错误
+            const handleUploadComplete = (event: MessageEvent) => {
+                try {
+                    const msg = JSON.parse(event.data);
+                    if (msg.type === 'success' && (msg.message === '文件上传成功' || msg.message === '上传已取消')) {
+                        session.socket?.removeEventListener('message', handleUploadComplete);
+                        resolve();
+                    } else if (msg.type === 'error') {
+                        session.socket?.removeEventListener('message', handleUploadComplete);
+                        reject(new Error(msg.message));
+                    }
+                } catch (e) { }
             };
-            reader.readAsArrayBuffer(blob);
-        };
 
-        // 给一点点延迟让后端准备好文件句柄
-        setTimeout(uploadNextChunk, 100);
+            session.socket.addEventListener('message', handleUploadComplete);
+
+            // 设置超时
+            const timeout = setTimeout(() => {
+                session.socket?.removeEventListener('message', handleUploadComplete);
+                updateSession(id, { isUploading: false, uploadingFileName: null, uploadProgress: 0 });
+                reject(new Error('Upload timeout'));
+            }, 300000); // 5分钟超时
+
+            // 发送开始上传指令
+            session.socket.send(JSON.stringify({
+                type: 'upload_file_start',
+                path: remotePath,
+                total_size: file.size
+            }));
+
+            const reader = new FileReader();
+            let chunkId = 0;
+
+            const uploadNextChunk = () => {
+                const currentSession = sessionsRef.current[id];
+                // 如果上传已取消（isUploading 被置为 false），停止循环
+                if (!currentSession || !currentSession.isUploading) {
+                    debug.log('[SFTP] Upload loop stopped (cancelled or finished)');
+                    clearTimeout(timeout);
+                    session.socket?.removeEventListener('message', handleUploadComplete);
+                    reject(new Error('Upload cancelled'));
+                    return;
+                }
+
+                if (chunkId >= totalChunks) {
+                    currentSession.socket?.send(JSON.stringify({ type: 'upload_file_end' }));
+                    clearTimeout(timeout);
+                    return;
+                }
+
+                const start = chunkId * CHUNK_SIZE;
+                const end = Math.min(start + CHUNK_SIZE, file.size);
+                const blob = file.slice(start, end);
+
+                reader.onload = (e) => {
+                    if (e.target?.result instanceof ArrayBuffer) {
+                        const data = Array.from(new Uint8Array(e.target.result));
+                        currentSession.socket?.send(JSON.stringify({
+                            type: 'upload_file_chunk',
+                            chunk_id: chunkId,
+                            data
+                        }));
+                        chunkId++;
+                        // 添加小延迟让后端处理并返回进度
+                        setTimeout(uploadNextChunk, 50);
+                    }
+                };
+                reader.readAsArrayBuffer(blob);
+            };
+
+            // 给一点点延迟让后端准备好文件句柄
+            setTimeout(uploadNextChunk, 100);
+        });
     };
 
     const downloadFile = (id: string, remotePath: string, fileName: string) => {
@@ -451,6 +539,7 @@ export function SFTPProvider({ children }: { children: React.ReactNode }) {
             createDir,
             rename,
             uploadFile,
+            cancelUpload,
             downloadFile,
             readFile,
             saveFile

@@ -172,7 +172,7 @@ export default function TaskWizard({ open, onOpenChange, plans, task, onSave }: 
 
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
-            <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+            <DialogContent className="max-w-7xl max-h-[90vh] overflow-y-auto">
                 <DialogHeader>
                     <DialogTitle>
                         {task ? '编辑部署任务' : t('deployment.wizard.title')}

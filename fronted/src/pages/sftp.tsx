@@ -66,6 +66,7 @@ export default function SFTPPage() {
         createDir,
         rename,
         uploadFile,
+        cancelUpload,
         downloadFile
     } = useSFTP();
 
@@ -238,11 +239,20 @@ export default function SFTPPage() {
         const files = e.target.files;
         if (!files || files.length === 0 || !activeSession) return;
 
-        const file = files[0];
-        const currentPath = activeSession.currentPath;
-        const remotePath = currentPath === '.' ? file.name : `${currentPath}/${file.name}`;
+        // 检查是否正在上传
+        if (activeSession.isUploading) {
+            toast.error('已有文件正在上传,请等待完成');
+            return;
+        }
 
-        await uploadFile(activeSession.id, remotePath, file);
+        const currentPath = activeSession.currentPath;
+
+        // 依次上传所有选中的文件
+        for (let i = 0; i < files.length; i++) {
+            const file = files[i];
+            const remotePath = currentPath === '.' ? file.name : `${currentPath}/${file.name}`;
+            await uploadFile(activeSession.id, remotePath, file);
+        }
 
         // 重置 input
         if (fileInputRef.current) {
@@ -271,6 +281,12 @@ export default function SFTPPage() {
         setIsDragging(false);
 
         if (!activeSession) return;
+
+        // 检查是否正在上传
+        if (activeSession.isUploading) {
+            toast.error('已有文件正在上传,请等待完成');
+            return;
+        }
 
         const files = Array.from(e.dataTransfer.files);
         if (files.length === 0) return;
@@ -366,235 +382,274 @@ export default function SFTPPage() {
                 <CardContent className="p-0 flex-1 flex flex-col min-h-0">
                     {activeSession ? (
                         <>
-                            {/* SFTP Toolbar */}
-                            <div className="p-2 border-b border-border/40 flex items-center justify-between bg-muted/5 gap-4">
-                                <div className="flex items-center gap-2 flex-1 min-w-0">
-                                    <Button variant="ghost" size="icon" onClick={handleBack} className="h-8 w-8 hover:bg-muted text-muted-foreground">
-                                        <ArrowUp className="h-4 w-4" />
-                                    </Button>
-                                    <div className="flex items-center gap-2 text-sm bg-muted/40 px-2 py-0.5 rounded-md flex-1 min-w-0 font-medium border border-transparent focus-within:border-primary/30 focus-within:bg-background transition-all">
-                                        <FolderIcon className="h-3.5 w-3.5 text-primary shrink-0" />
-                                        <input
-                                            type="text"
-                                            className="bg-transparent border-none outline-none flex-1 h-7 text-xs font-mono text-foreground/80 placeholder:text-muted-foreground/50"
-                                            value={pathInput}
-                                            onChange={(e) => setPathInput(e.target.value)}
-                                            onKeyDown={(e) => {
-                                                if (e.key === 'Enter' && activeSession) {
-                                                    listDir(activeSession.id, pathInput);
-                                                }
-                                            }}
-                                            spellCheck={false}
-                                        />
-                                    </div>
-                                    <Button variant="ghost" size="icon" onClick={() => listDir(activeSession.id, activeSession.currentPath)} className="h-8 w-8 hover:bg-muted text-muted-foreground">
-                                        <RefreshCw className={cn("h-4 w-4", activeSession.loading && "animate-spin")} />
-                                    </Button>
-                                </div>
-                                <div className="flex items-center gap-2">
-                                    <div className="relative w-48 hidden md:block">
-                                        <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-muted-foreground" />
-                                        <Input
-                                            placeholder="搜索文件..."
-                                            className="h-8 pl-8 pr-8 text-xs bg-muted/30 border-none w-full focus-visible:ring-1"
-                                            value={searchQuery}
-                                            onChange={(e) => setSearchQuery(e.target.value)}
-                                        />
-                                        {searchQuery && (
-                                            <button
-                                                onClick={() => setSearchQuery('')}
-                                                className="absolute right-2.5 top-2.5 h-3.5 w-3.5 text-muted-foreground hover:text-foreground transition-colors"
-                                            >
-                                                <X className="h-3.5 w-3.5" />
-                                            </button>
-                                        )}
-                                    </div>
-                                    <Button
-                                        variant="outline"
-                                        size="sm"
-                                        onClick={() => handleOpenDialog('create')}
-                                        className="h-8 gap-2 text-xs border-dashed"
-                                    >
-                                        <FolderPlus className="h-3.5 w-3.5" />
-                                        新建目录
-                                    </Button>
-                                    <input
-                                        ref={fileInputRef}
-                                        type="file"
-                                        className="hidden"
-                                        onChange={handleFileSelect}
-                                    />
-                                    <Button
-                                        size="sm"
-                                        className="h-8 gap-2 text-xs"
-                                        onClick={() => fileInputRef.current?.click()}
-                                    >
-                                        <Upload className="h-3.5 w-3.5" />
-                                        上传文件
-                                    </Button>
-                                </div>
-                            </div>
+                            {/* SFTP 操作区容器 */}
+                            <div className="flex-1 flex flex-col min-h-0 relative">
+                                {/* 磨砂蒙层 - 仅在上传时显示 */}
+                                {activeSession.isUploading && (
+                                    <div className="absolute inset-0 z-50 flex items-center justify-center animate-in fade-in duration-300">
+                                        <div className="absolute inset-0 bg-background/20 backdrop-blur-[2px]" />
+                                        <Card className="z-10 w-[320px] shadow-2xl border-primary/20 bg-background/95 backdrop-blur-md">
+                                            <CardContent className="p-6">
+                                                <div className="flex flex-col items-center gap-4">
+                                                    <div className="h-12 w-12 rounded-full bg-primary/10 flex items-center justify-center">
+                                                        <Upload className="h-6 w-6 text-primary animate-bounce" />
+                                                    </div>
+                                                    <div className="text-center space-y-1">
+                                                        <h3 className="font-semibold text-sm">正在上传文件</h3>
+                                                        <p className="text-[10px] text-muted-foreground truncate max-w-[240px]">
+                                                            {activeSession.uploadingFileName}
+                                                        </p>
+                                                    </div>
 
-                            {/* File List */}
-                            <div
-                                className="flex-1 overflow-auto relative min-h-0 bg-background/50"
-                                onDragOver={handleDragOver}
-                                onDragLeave={handleDragLeave}
-                                onDrop={handleDrop}
-                            >
-                                {/* Drag Overlay */}
-                                {isDragging && (
-                                    <div className="absolute inset-0 z-30 bg-primary/10 backdrop-blur-sm border-2 border-dashed border-primary rounded-2xl flex items-center justify-center pointer-events-none">
-                                        <div className="bg-background/90 rounded-2xl px-8 py-6 shadow-2xl border border-primary/20">
-                                            <div className="flex flex-col items-center gap-3">
-                                                <Upload className="h-12 w-12 text-primary animate-bounce" />
-                                                <p className="text-lg font-semibold text-foreground">释放以上传文件</p>
-                                                <p className="text-sm text-muted-foreground">支持同时上传多个文件</p>
-                                            </div>
-                                        </div>
+                                                    <div className="w-full space-y-2">
+                                                        <div className="flex justify-between text-[10px] font-mono">
+                                                            <span className="text-muted-foreground">进度</span>
+                                                            <span className="text-primary">{activeSession.uploadProgress}%</span>
+                                                        </div>
+                                                        <div className="w-full bg-primary/10 rounded-full h-1.5 overflow-hidden">
+                                                            <div
+                                                                className="bg-primary h-full transition-all duration-300 shadow-[0_0_8px_rgba(var(--primary),0.4)]"
+                                                                style={{ width: `${activeSession.uploadProgress}%` }}
+                                                            />
+                                                        </div>
+                                                    </div>
+
+                                                    <Button
+                                                        variant="outline"
+                                                        size="sm"
+                                                        className="mt-2 h-8 text-[11px] rounded-lg border-destructive/20 text-destructive hover:bg-destructive/5"
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            cancelUpload(activeSession.id);
+                                                        }}
+                                                    >
+                                                        取消上传
+                                                    </Button>
+                                                </div>
+                                            </CardContent>
+                                        </Card>
                                     </div>
                                 )}
-                                {/* Upload Progress */}
-                                {activeSession.uploadingFileName && (
-                                    <div className="sticky top-0 z-20 bg-primary/10 border-b border-primary/20 px-4 py-2">
-                                        <div className="flex items-center justify-between text-xs mb-1">
-                                            <span className="font-medium text-primary">
-                                                正在上传: {activeSession.uploadingFileName}
-                                            </span>
-                                            <span className="text-primary font-mono">
-                                                {activeSession.uploadProgress ?? 0}%
-                                            </span>
-                                        </div>
-                                        <div className="w-full bg-primary/20 rounded-full h-1.5 overflow-hidden">
-                                            <div
-                                                className="bg-primary h-full transition-all duration-300 ease-out"
-                                                style={{ width: `${activeSession.uploadProgress ?? 0}%` }}
+
+                                {/* SFTP Toolbar */}
+                                <div className={cn(
+                                    "p-2 border-b border-border/40 flex items-center justify-between bg-muted/5 gap-4 transition-all duration-300",
+                                    activeSession.isUploading && "blur-[1px] opacity-60 pointer-events-none"
+                                )}>
+                                    <div className="flex items-center gap-2 flex-1 min-w-0">
+                                        <Button variant="ghost" size="icon" onClick={handleBack} className="h-8 w-8 hover:bg-muted text-muted-foreground">
+                                            <ArrowUp className="h-4 w-4" />
+                                        </Button>
+                                        <div className="flex items-center gap-2 text-sm bg-muted/40 px-2 py-0.5 rounded-md flex-1 min-w-0 font-medium border border-transparent focus-within:border-primary/30 focus-within:bg-background transition-all">
+                                            <FolderIcon className="h-3.5 w-3.5 text-primary shrink-0" />
+                                            <input
+                                                type="text"
+                                                className="bg-transparent border-none outline-none flex-1 h-7 text-xs font-mono text-foreground/80 placeholder:text-muted-foreground/50"
+                                                value={pathInput}
+                                                onChange={(e) => setPathInput(e.target.value)}
+                                                onKeyDown={(e) => {
+                                                    if (e.key === 'Enter' && activeSession) {
+                                                        listDir(activeSession.id, pathInput);
+                                                    }
+                                                }}
+                                                spellCheck={false}
                                             />
                                         </div>
+                                        <Button variant="ghost" size="icon" onClick={() => listDir(activeSession.id, activeSession.currentPath)} className="h-8 w-8 hover:bg-muted text-muted-foreground">
+                                            <RefreshCw className={cn("h-4 w-4", activeSession.loading && "animate-spin")} />
+                                        </Button>
                                     </div>
-                                )}
-                                <Table>
-                                    <TableHeader className="sticky top-0 bg-background z-10 shadow-sm shadow-border/10">
-                                        <TableRow className="hover:bg-transparent border-border/40">
-                                            <TableHead className="w-[450px] text-xs font-bold uppercase tracking-wider">文件名</TableHead>
-                                            <TableHead className="text-xs font-bold uppercase tracking-wider">大小</TableHead>
-                                            <TableHead className="text-xs font-bold uppercase tracking-wider">修改时间</TableHead>
-                                            <TableHead className="text-right text-xs font-bold uppercase tracking-wider">操作</TableHead>
-                                        </TableRow>
-                                    </TableHeader>
-                                    <TableBody>
-                                        {filteredFiles.map((file) => (
-                                            <TableRow
-                                                key={file.name}
-                                                className="group cursor-default hover:bg-muted/30 transition-colors border-border/20"
-                                                onDoubleClick={() => file.is_dir && handleNavigate(file)}
-                                            >
-                                                <TableCell className="py-2">
-                                                    <div className="flex items-center gap-3">
-                                                        {file.is_dir ? (
-                                                            <FolderIcon className="h-4.5 w-4.5 text-primary" />
-                                                        ) : (
-                                                            <FileIcon className="h-4.5 w-4.5 text-slate-400 group-hover:text-primary transition-colors" />
-                                                        )}
-                                                        <span className={cn(
-                                                            "text-sm font-medium transition-colors",
-                                                            file.is_dir ? "cursor-pointer hover:text-primary" : "text-muted-foreground"
-                                                        )}>
-                                                            {file.name}
-                                                        </span>
-                                                    </div>
-                                                </TableCell>
-                                                <TableCell className="py-2 text-xs text-muted-foreground tabular-nums">
-                                                    {file.is_dir ? '-' : formatSize(Number(file.size))}
-                                                </TableCell>
-                                                <TableCell className="py-2 text-xs text-muted-foreground">
-                                                    {formatDate(file.modified)}
-                                                </TableCell>
-                                                <TableCell className="py-2 text-right">
-                                                    <div className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                                                        {!file.is_dir && (
-                                                            <Button
-                                                                variant="ghost"
-                                                                size="icon"
-                                                                className="h-7 w-7 text-muted-foreground hover:text-primary active:scale-95 transition-all"
-                                                                onClick={(e) => {
-                                                                    e.stopPropagation();
-                                                                    if (activeSession) {
-                                                                        const remotePath = activeSession.currentPath === '.' ? file.name : `${activeSession.currentPath}/${file.name}`;
-                                                                        downloadFile(activeSession.id, remotePath, file.name);
-                                                                    }
-                                                                }}
-                                                            >
-                                                                <Download className="h-3.5 w-3.5" />
-                                                            </Button>
-                                                        )}
-                                                        {(file.is_content_editable || (!file.is_dir && file.name.toLowerCase().endsWith('.pdf'))) && (
-                                                            <Button
-                                                                variant="ghost"
-                                                                size="icon"
-                                                                className="h-7 w-7 text-muted-foreground hover:text-primary active:scale-95 transition-all"
-                                                                onClick={(e) => {
-                                                                    e.stopPropagation();
-                                                                    if (!file.is_dir && file.name.toLowerCase().endsWith('.pdf')) {
-                                                                        handleOpenPdfViewer(file);
-                                                                    } else {
-                                                                        handleOpenEditor(file, true);
-                                                                    }
-                                                                }}
-                                                                title={t('sftp.view')}
-                                                            >
-                                                                <Eye className="h-3.5 w-3.5" />
-                                                            </Button>
-                                                        )}
-                                                        {file.is_content_editable && (
-                                                            <Button
-                                                                variant="ghost"
-                                                                size="icon"
-                                                                className="h-7 w-7 text-muted-foreground hover:text-primary active:scale-95 transition-all"
-                                                                onClick={(e) => {
-                                                                    e.stopPropagation();
-                                                                    handleOpenEditor(file, false);
-                                                                }}
-                                                                title={t('sftp.edit')}
-                                                            >
-                                                                <Edit3 className="h-3.5 w-3.5" />
-                                                            </Button>
-                                                        )}
-                                                        <Button
-                                                            variant="ghost"
-                                                            size="icon"
-                                                            className="h-7 w-7 text-muted-foreground hover:text-primary active:scale-95 transition-all"
-                                                            onClick={(e) => {
-                                                                e.stopPropagation();
-                                                                handleOpenDialog('rename', file);
-                                                            }}
-                                                        >
-                                                            <Pencil className="h-3.5 w-3.5" />
-                                                        </Button>
-                                                        <Button
-                                                            variant="ghost"
-                                                            size="icon"
-                                                            className="h-7 w-7 text-muted-foreground hover:text-destructive active:scale-95 transition-all"
-                                                            onClick={(e) => {
-                                                                e.stopPropagation();
-                                                                handleOpenDialog('delete', file);
-                                                            }}
-                                                        >
-                                                            <Trash2 className="h-3.5 w-3.5" />
-                                                        </Button>
-                                                    </div>
-                                                </TableCell>
+                                    <div className="flex items-center gap-2">
+                                        <div className="relative w-48 hidden md:block">
+                                            <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-muted-foreground" />
+                                            <Input
+                                                placeholder="搜索文件..."
+                                                className="h-8 pl-8 pr-8 text-xs bg-muted/30 border-none w-full focus-visible:ring-1"
+                                                value={searchQuery}
+                                                onChange={(e) => setSearchQuery(e.target.value)}
+                                            />
+                                            {searchQuery && (
+                                                <button
+                                                    onClick={() => setSearchQuery('')}
+                                                    className="absolute right-2.5 top-2.5 h-3.5 w-3.5 text-muted-foreground hover:text-foreground transition-colors"
+                                                >
+                                                    <X className="h-3.5 w-3.5" />
+                                                </button>
+                                            )}
+                                        </div>
+                                        <Button
+                                            variant="outline"
+                                            size="sm"
+                                            onClick={() => handleOpenDialog('create')}
+                                            className="h-8 gap-2 text-xs border-dashed"
+                                        >
+                                            <FolderPlus className="h-3.5 w-3.5" />
+                                            新建目录
+                                        </Button>
+                                        <input
+                                            ref={fileInputRef}
+                                            type="file"
+                                            multiple
+                                            className="hidden"
+                                            onChange={handleFileSelect}
+                                        />
+                                        <Button
+                                            size="sm"
+                                            className="h-8 gap-2 text-xs"
+                                            onClick={() => fileInputRef.current?.click()}
+                                        >
+                                            <Upload className="h-3.5 w-3.5" />
+                                            上传文件
+                                        </Button>
+                                    </div>
+                                </div>
+
+                                {/* File List Table Container */}
+                                <div
+                                    className={cn(
+                                        "flex-1 overflow-auto relative min-h-0 bg-background/50 transition-all duration-300",
+                                        activeSession.isUploading && "blur-[1px] opacity-60 pointer-events-none"
+                                    )}
+                                    onDragOver={handleDragOver}
+                                    onDragLeave={handleDragLeave}
+                                    onDrop={handleDrop}
+                                >
+                                    {/* Drag Overlay */}
+                                    {isDragging && !activeSession.isUploading && (
+                                        <div className="absolute inset-0 z-30 bg-primary/10 backdrop-blur-sm border-2 border-dashed border-primary rounded-2xl flex items-center justify-center pointer-events-none">
+                                            <div className="bg-background/90 rounded-2xl px-8 py-6 shadow-2xl border border-primary/20">
+                                                <div className="flex flex-col items-center gap-3">
+                                                    <Upload className="h-12 w-12 text-primary animate-bounce" />
+                                                    <p className="text-lg font-semibold text-foreground">释放以上传文件</p>
+                                                    <p className="text-sm text-muted-foreground">支持同时上传多个文件</p>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    <Table>
+                                        <TableHeader className="sticky top-0 bg-background z-10 shadow-sm shadow-border/10">
+                                            <TableRow className="hover:bg-transparent border-border/40">
+                                                <TableHead className="w-[450px] text-xs font-bold uppercase tracking-wider">文件名</TableHead>
+                                                <TableHead className="text-xs font-bold uppercase tracking-wider">大小</TableHead>
+                                                <TableHead className="text-xs font-bold uppercase tracking-wider">修改时间</TableHead>
+                                                <TableHead className="text-right text-xs font-bold uppercase tracking-wider">操作</TableHead>
                                             </TableRow>
-                                        ))}
-                                        {filteredFiles.length === 0 && !activeSession.loading && (
-                                            <TableRow className="hover:bg-transparent">
-                                                <TableCell colSpan={4} className="h-40 text-center text-muted-foreground text-sm italic opacity-50">
-                                                    目录为空或未找到相关文件
-                                                </TableCell>
-                                            </TableRow>
-                                        )}
-                                    </TableBody>
-                                </Table>
+                                        </TableHeader>
+                                        <TableBody>
+                                            {filteredFiles.map((file) => (
+                                                <TableRow
+                                                    key={file.name}
+                                                    className="group cursor-default hover:bg-muted/30 transition-colors border-border/20"
+                                                    onDoubleClick={() => file.is_dir && handleNavigate(file)}
+                                                >
+                                                    <TableCell className="py-2">
+                                                        <div className="flex items-center gap-3">
+                                                            {file.is_dir ? (
+                                                                <FolderIcon className="h-4.5 w-4.5 text-primary" />
+                                                            ) : (
+                                                                <FileIcon className="h-4.5 w-4.5 text-slate-400 group-hover:text-primary transition-colors" />
+                                                            )}
+                                                            <span className={cn(
+                                                                "text-sm font-medium transition-colors",
+                                                                file.is_dir ? "cursor-pointer hover:text-primary" : "text-muted-foreground"
+                                                            )}>
+                                                                {file.name}
+                                                            </span>
+                                                        </div>
+                                                    </TableCell>
+                                                    <TableCell className="py-2 text-xs text-muted-foreground tabular-nums">
+                                                        {file.is_dir ? '-' : formatSize(Number(file.size))}
+                                                    </TableCell>
+                                                    <TableCell className="py-2 text-xs text-muted-foreground">
+                                                        {formatDate(file.modified)}
+                                                    </TableCell>
+                                                    <TableCell className="py-2 text-right">
+                                                        <div className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                                            {!file.is_dir && (
+                                                                <Button
+                                                                    variant="ghost"
+                                                                    size="icon"
+                                                                    className="h-7 w-7 text-muted-foreground hover:text-primary active:scale-95 transition-all"
+                                                                    onClick={(e) => {
+                                                                        e.stopPropagation();
+                                                                        if (activeSession) {
+                                                                            const remotePath = activeSession.currentPath === '.' ? file.name : `${activeSession.currentPath}/${file.name}`;
+                                                                            downloadFile(activeSession.id, remotePath, file.name);
+                                                                        }
+                                                                    }}
+                                                                >
+                                                                    <Download className="h-3.5 w-3.5" />
+                                                                </Button>
+                                                            )}
+                                                            {(file.is_content_editable || (!file.is_dir && file.name.toLowerCase().endsWith('.pdf'))) && (
+                                                                <Button
+                                                                    variant="ghost"
+                                                                    size="icon"
+                                                                    className="h-7 w-7 text-muted-foreground hover:text-primary active:scale-95 transition-all"
+                                                                    onClick={(e) => {
+                                                                        e.stopPropagation();
+                                                                        if (!file.is_dir && file.name.toLowerCase().endsWith('.pdf')) {
+                                                                            handleOpenPdfViewer(file);
+                                                                        } else {
+                                                                            handleOpenEditor(file, true);
+                                                                        }
+                                                                    }}
+                                                                    title={t('sftp.view')}
+                                                                >
+                                                                    <Eye className="h-3.5 w-3.5" />
+                                                                </Button>
+                                                            )}
+                                                            {file.is_content_editable && (
+                                                                <Button
+                                                                    variant="ghost"
+                                                                    size="icon"
+                                                                    className="h-7 w-7 text-muted-foreground hover:text-primary active:scale-95 transition-all"
+                                                                    onClick={(e) => {
+                                                                        e.stopPropagation();
+                                                                        handleOpenEditor(file, false);
+                                                                    }}
+                                                                    title={t('sftp.edit')}
+                                                                >
+                                                                    <Edit3 className="h-3.5 w-3.5" />
+                                                                </Button>
+                                                            )}
+                                                            <Button
+                                                                variant="ghost"
+                                                                size="icon"
+                                                                className="h-7 w-7 text-muted-foreground hover:text-primary active:scale-95 transition-all"
+                                                                onClick={(e) => {
+                                                                    e.stopPropagation();
+                                                                    handleOpenDialog('rename', file);
+                                                                }}
+                                                            >
+                                                                <Pencil className="h-3.5 w-3.5" />
+                                                            </Button>
+                                                            <Button
+                                                                variant="ghost"
+                                                                size="icon"
+                                                                className="h-7 w-7 text-muted-foreground hover:text-destructive active:scale-95 transition-all"
+                                                                onClick={(e) => {
+                                                                    e.stopPropagation();
+                                                                    handleOpenDialog('delete', file);
+                                                                }}
+                                                            >
+                                                                <Trash2 className="h-3.5 w-3.5" />
+                                                            </Button>
+                                                        </div>
+                                                    </TableCell>
+                                                </TableRow>
+                                            ))}
+                                            {filteredFiles.length === 0 && !activeSession.loading && (
+                                                <TableRow className="hover:bg-transparent">
+                                                    <TableCell colSpan={4} className="h-40 text-center text-muted-foreground text-sm italic opacity-50">
+                                                        目录为空或未找到相关文件
+                                                    </TableCell>
+                                                </TableRow>
+                                            )}
+                                        </TableBody>
+                                    </Table>
+                                </div>
                             </div>
                         </>
                     ) : (
