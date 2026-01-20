@@ -111,8 +111,16 @@ pub struct FileAttrInfo {
     pub permissions: Option<u32>,
 }
 
-/// 分块大小常量 (1MB)
-const CHUNK_SIZE: usize = 1024 * 1024;
+/// 分块大小常量
+/// - 局域网/高速网络: 使用 CHUNK_SIZE_LARGE (10MB)
+/// - 公网/一般网络: 使用 CHUNK_SIZE_MEDIUM (2MB)
+/// - 慢速/不稳定网络: 使用 CHUNK_SIZE_SMALL (512KB)
+const CHUNK_SIZE_SMALL: usize = 512 * 1024;       // 512KB
+const CHUNK_SIZE_MEDIUM: usize = 2 * 1024 * 1024;  // 2MB
+const CHUNK_SIZE_LARGE: usize = 10 * 1024 * 1024;  // 10MB
+
+/// 默认使用 10MB,适合局域网高速传输
+const CHUNK_SIZE: usize = CHUNK_SIZE_LARGE;
 
 /// 上传状态
 struct UploadState {
@@ -458,15 +466,32 @@ async fn handle_sftp_command(
             // 打开文件
             let mut file = sftp_conn.sftp.open(&path).await?;
 
-            // 分块读取并发送
+            // 分块读取并发送 (使用 1MB 缓冲区)
             let mut chunk_id = 0u64;
             let mut buffer = vec![0u8; CHUNK_SIZE];
+            let mut remaining = total_size;
 
             loop {
-                let n = file.read(&mut buffer).await?;
+                let n = if remaining >= CHUNK_SIZE as u64 {
+                    // 尝试读满整个 buffer
+                    match file.read_exact(&mut buffer).await {
+                        Ok(_) => CHUNK_SIZE,
+                        Err(e) if e.kind() == std::io::ErrorKind::UnexpectedEof => {
+                            // 文件提前结束,读取剩余部分
+                            file.read(&mut buffer).await?
+                        }
+                        Err(e) => return Err(e.into()),
+                    }
+                } else {
+                    // 最后一块,只读取剩余大小
+                    file.read(&mut buffer[..remaining as usize]).await?
+                };
+
                 if n == 0 {
                     break;
                 }
+
+                remaining = remaining.saturating_sub(n as u64);
 
                 // 发送块信息
                 socket

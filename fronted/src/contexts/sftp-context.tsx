@@ -2,6 +2,7 @@ import React, { createContext, useContext, useState, useCallback, useRef } from 
 import { type Server } from '@/api/server';
 import { toast } from 'sonner';
 import { getWebSocketUrl } from '@/utils/websocket';
+import streamSaver from 'streamsaver';
 
 import { debug } from '@/utils/debug';
 
@@ -127,6 +128,7 @@ export function SFTPProvider({ children }: { children: React.ReactNode }) {
             chunks: BlobPart[];
             receivedSize: number;
             expectedChunks: number;
+            streamWriter?: WritableStreamDefaultWriter<Uint8Array>; // StreamSaver 的写入流
         } | null = null;
 
         socket.onopen = () => {
@@ -136,17 +138,28 @@ export function SFTPProvider({ children }: { children: React.ReactNode }) {
         };
 
         socket.onmessage = (event) => {
-            // 处理二进制消息（文件块）
+            // 处理二进制消息(文件块)
             if (event.data instanceof Blob) {
                 if (downloadState) {
                     const currentDownloadState = downloadState;
-                    event.data.arrayBuffer().then(buffer => {
+                    event.data.arrayBuffer().then(async buffer => {
                         const chunk = new Uint8Array(buffer);
-                        currentDownloadState.chunks.push(chunk);
+                        currentDownloadState.chunks.push(chunk); // 保留用于 getFileBlob
                         currentDownloadState.receivedSize += chunk.length;
 
                         const progress = Math.round((currentDownloadState.receivedSize / currentDownloadState.totalSize) * 100);
                         updateSession(id, { downloadProgress: progress });
+
+                        // 立即将数据写入 StreamSaver 流
+                        if (currentDownloadState.streamWriter) {
+                            try {
+                                await currentDownloadState.streamWriter.write(chunk);
+                                debug.log('[SFTP] Chunk written to stream:', currentDownloadState.chunks.length);
+                            } catch (e) {
+                                debug.error('[SFTP] Stream write error:', e);
+                                toast.error('写入文件流失败');
+                            }
+                        }
 
                         debug.log('[SFTP] Chunk received:', currentDownloadState.chunks.length, '/', currentDownloadState.expectedChunks);
                     });
@@ -177,15 +190,28 @@ export function SFTPProvider({ children }: { children: React.ReactNode }) {
                             uploadProgress: Math.round((msg.received / msg.total) * 100)
                         });
                         break;
-                    case 'download_start':
+                    case 'download_start': {
+                        const fileName = sessionsRef.current[id]?.downloadingFileName || 'download';
+
+                        // 使用 StreamSaver 创建可写流
+                        const fileStream = streamSaver.createWriteStream(fileName, {
+                            size: msg.total_size, // 提供文件大小以显示准确的进度
+                        });
+
+                        const streamWriter = fileStream.getWriter();
+
                         downloadState = {
-                            fileName: sessionsRef.current[id]?.downloadingFileName || 'download',
+                            fileName,
                             totalSize: msg.total_size,
-                            chunks: [],
+                            chunks: [], // 仍保留用于 getFileBlob
                             receivedSize: 0,
-                            expectedChunks: 0
+                            expectedChunks: 0,
+                            streamWriter
                         };
+
+                        debug.log('[SFTP] StreamSaver download started:', fileName, msg.total_size);
                         break;
+                    }
                     case 'download_chunk':
                         // 下一个消息应该是二进制数据
                         if (downloadState) {
@@ -197,43 +223,41 @@ export function SFTPProvider({ children }: { children: React.ReactNode }) {
                             debug.log('[SFTP] Download end, expected:', downloadState.expectedChunks, 'received:', downloadState.chunks.length);
 
                             const finalDownloadState = downloadState;
-                            const checkAndDownload = () => {
+                            const checkAndFinish = async () => {
                                 if (finalDownloadState.chunks.length >= finalDownloadState.expectedChunks && finalDownloadState.expectedChunks > 0) {
-                                    debug.log('[SFTP] All chunks received, triggering download');
+                                    debug.log('[SFTP] All chunks received, closing stream');
 
-                                    const blob = new Blob(finalDownloadState.chunks);
-                                    const url = URL.createObjectURL(blob);
+                                    // 关闭 StreamSaver 流
+                                    if (finalDownloadState.streamWriter) {
+                                        try {
+                                            await finalDownloadState.streamWriter.close();
+                                            debug.log('[SFTP] StreamSaver stream closed successfully');
+                                            toast.success('文件下载成功');
+                                        } catch (e) {
+                                            debug.error('[SFTP] Stream close error:', e);
+                                            toast.error('关闭文件流失败');
+                                        }
+                                    }
 
+                                    // 检查是否有回调(用于 getFileBlob)
                                     const callbacks = downloadCallbacks.current.get(id);
                                     const blobCallback = callbacks && callbacks.length > 0 ? callbacks.shift() : null;
 
                                     if (blobCallback) {
+                                        // 如果是 getFileBlob 调用,返回 blob
+                                        const blob = new Blob(finalDownloadState.chunks);
                                         blobCallback(blob);
-                                    } else {
-                                        const a = document.createElement('a');
-                                        a.href = url;
-                                        a.download = finalDownloadState.fileName;
-                                        a.style.display = 'none';
-                                        document.body.appendChild(a);
-                                        setTimeout(() => {
-                                            a.click();
-                                            setTimeout(() => {
-                                                document.body.removeChild(a);
-                                                URL.revokeObjectURL(url);
-                                            }, 100);
-                                        }, 0);
-                                        toast.success('文件下载成功');
                                     }
 
                                     updateSession(id, { downloadingFileName: null, downloadProgress: 0 });
                                 } else if (finalDownloadState.chunks.length < finalDownloadState.expectedChunks) {
-                                    setTimeout(checkAndDownload, 50);
+                                    setTimeout(checkAndFinish, 50);
                                 } else {
                                     debug.log('[SFTP] Download invalid:', finalDownloadState);
                                 }
                             };
 
-                            setTimeout(checkAndDownload, 10);
+                            setTimeout(checkAndFinish, 10);
                             downloadState = null;
                         }
                         break;

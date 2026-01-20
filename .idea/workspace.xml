@@ -11,21 +11,14 @@
     </cargoProject>
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="c700b9d1-2a97-4d3d-88b6-9df02b6e1fe0" name="Changes" comment="init commit">
-      <change beforePath="$PROJECT_DIR$/fronted/src/components/deployment/plan-editor.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/fronted/src/components/deployment/plan-editor.tsx" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/fronted/src/components/deployment/task-wizard.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/fronted/src/components/deployment/task-wizard.tsx" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/fronted/src/contexts/sftp-context.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/fronted/src/contexts/sftp-context.tsx" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/fronted/src/pages/sftp.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/fronted/src/pages/sftp.tsx" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/main.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/main.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/sftp/handler.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/sftp/handler.rs" afterDir="false" />
-    </list>
+    <list default="true" id="c700b9d1-2a97-4d3d-88b6-9df02b6e1fe0" name="Changes" comment="init commit" />
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
     <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
     <option name="LAST_RESOLUTION" value="IGNORE" />
   </component>
   <component name="EmbeddingIndexingInfo">
-    <option name="cachedIndexableFilesCount" value="4419" />
+    <option name="cachedIndexableFilesCount" value="4423" />
   </component>
   <component name="ExecutionTargetManager" SELECTED_TARGET="RsBuildProfile:dev" />
   <component name="FileTemplateManagerImpl">
@@ -137,6 +130,7 @@
       <workItem from="1768571107879" duration="21894000" />
       <workItem from="1768799688184" duration="1707000" />
       <workItem from="1768814872802" duration="361000" />
+      <workItem from="1768878887052" duration="12000" />
     </task>
     <task id="LOCAL-00001" summary="init commit">
       <option name="closed" value="true" />
