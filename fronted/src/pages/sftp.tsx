@@ -17,7 +17,8 @@ import {
     Edit3,
     Eye,
     ArrowUpDown,
-    ArrowDown
+    ArrowDown,
+    Shield
 } from 'lucide-react';
 import { getServers, type Server } from '@/api/server';
 import { toast } from 'sonner';
@@ -51,6 +52,7 @@ import {
 } from '@/components/ui/table';
 import { cn } from '@/lib/utils';
 import { Badge } from '@/components/ui/badge';
+import { Switch } from '@/components/ui/switch';
 import { EditorModal } from '@/components/sftp/editor-modal';
 import { PdfViewerModal } from '@/components/sftp/pdf-viewer-modal';
 
@@ -67,6 +69,7 @@ export default function SFTPPage() {
         deleteDir,
         createDir,
         rename,
+        setPermissions,
         uploadFile,
         cancelUpload,
         downloadFile
@@ -84,6 +87,19 @@ export default function SFTPPage() {
     const [newName, setNewName] = useState('');
     const [isDragging, setIsDragging] = useState(false);
     const fileInputRef = useRef<HTMLInputElement>(null);
+
+    // Permissions Dialog States
+    const [isPermissionsDialogOpen, setIsPermissionsDialogOpen] = useState(false);
+    const [permissionsTarget, setPermissionsTarget] = useState<FileEntry | null>(null);
+    const [ownerRead, setOwnerRead] = useState(false);
+    const [ownerWrite, setOwnerWrite] = useState(false);
+    const [ownerExecute, setOwnerExecute] = useState(false);
+    const [groupRead, setGroupRead] = useState(false);
+    const [groupWrite, setGroupWrite] = useState(false);
+    const [groupExecute, setGroupExecute] = useState(false);
+    const [othersRead, setOthersRead] = useState(false);
+    const [othersWrite, setOthersWrite] = useState(false);
+    const [othersExecute, setOthersExecute] = useState(false);
 
     const activeSession = activeSessionId ? sessions[activeSessionId] : null;
 
@@ -177,6 +193,19 @@ export default function SFTPPage() {
         return new Date(timestamp * 1000).toLocaleString();
     };
 
+    const formatPermissions = (permissions: number | null, isDir: boolean) => {
+        if (permissions === null) return '-';
+
+        const perms = permissions & 0o777;
+        const chars = ['---', '--x', '-w-', '-wx', 'r--', 'r-x', 'rw-', 'rwx'];
+
+        const owner = chars[(perms >> 6) & 7];
+        const group = chars[(perms >> 3) & 7];
+        const other = chars[perms & 7];
+
+        return (isDir ? 'd' : '-') + owner + group + other;
+    };
+
     const handleNavigate = (entry: FileEntry) => {
         if (!activeSession || !entry.is_dir) return;
         const newPath = activeSession.currentPath === '.'
@@ -264,6 +293,47 @@ export default function SFTPPage() {
         setIsEditorOpen(true);
     };
 
+    const handleOpenPermissionsDialog = (file: FileEntry) => {
+        setPermissionsTarget(file);
+
+        // 解析当前权限
+        const perms = file.permissions || 0;
+        setOwnerRead((perms & 0o400) !== 0);
+        setOwnerWrite((perms & 0o200) !== 0);
+        setOwnerExecute((perms & 0o100) !== 0);
+        setGroupRead((perms & 0o040) !== 0);
+        setGroupWrite((perms & 0o020) !== 0);
+        setGroupExecute((perms & 0o010) !== 0);
+        setOthersRead((perms & 0o004) !== 0);
+        setOthersWrite((perms & 0o002) !== 0);
+        setOthersExecute((perms & 0o001) !== 0);
+
+        setIsPermissionsDialogOpen(true);
+    };
+
+    const handleSavePermissions = () => {
+        if (!permissionsTarget || !activeSession) return;
+
+        // 计算新的权限值
+        let newPerms = 0;
+        if (ownerRead) newPerms |= 0o400;
+        if (ownerWrite) newPerms |= 0o200;
+        if (ownerExecute) newPerms |= 0o100;
+        if (groupRead) newPerms |= 0o040;
+        if (groupWrite) newPerms |= 0o020;
+        if (groupExecute) newPerms |= 0o010;
+        if (othersRead) newPerms |= 0o004;
+        if (othersWrite) newPerms |= 0o002;
+        if (othersExecute) newPerms |= 0o001;
+
+        // 调用后端 API 更新权限
+        const currentPath = activeSession.currentPath;
+        const fullPath = currentPath === '.' ? permissionsTarget.name : `${currentPath}/${permissionsTarget.name}`;
+        setPermissions(activeSession.id, fullPath, newPerms);
+
+        setIsPermissionsDialogOpen(false);
+    };
+
     const handleConfirmOperation = () => {
         if (!activeSession) return;
 
@@ -298,7 +368,7 @@ export default function SFTPPage() {
 
         // 检查是否正在上传
         if (activeSession.isUploading) {
-            toast.error('已有文件正在上传,请等待完成');
+            toast.error(t('sftp.uploadInProgress'));
             return;
         }
 
@@ -452,7 +522,7 @@ export default function SFTPPage() {
                                                         <Upload className="h-6 w-6 text-primary animate-bounce" />
                                                     </div>
                                                     <div className="text-center space-y-1">
-                                                        <h3 className="font-semibold text-sm">正在上传文件</h3>
+                                                        <h3 className="font-semibold text-sm">{t('sftp.uploading')}</h3>
                                                         <p className="text-[10px] text-muted-foreground truncate max-w-[240px]">
                                                             {activeSession.uploadingFileName}
                                                         </p>
@@ -460,7 +530,7 @@ export default function SFTPPage() {
 
                                                     <div className="w-full space-y-2">
                                                         <div className="flex justify-between text-[10px] font-mono">
-                                                            <span className="text-muted-foreground">进度</span>
+                                                            <span className="text-muted-foreground">{t('sftp.uploadProgress')}</span>
                                                             <span className="text-primary">{activeSession.uploadProgress}%</span>
                                                         </div>
                                                         <div className="w-full bg-primary/10 rounded-full h-1.5 overflow-hidden">
@@ -480,7 +550,7 @@ export default function SFTPPage() {
                                                             cancelUpload(activeSession.id);
                                                         }}
                                                     >
-                                                        取消上传
+                                                        {t('sftp.cancelUpload')}
                                                     </Button>
                                                 </div>
                                             </CardContent>
@@ -520,7 +590,7 @@ export default function SFTPPage() {
                                         <div className="relative w-48 hidden md:block">
                                             <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-muted-foreground" />
                                             <Input
-                                                placeholder="搜索文件..."
+                                                placeholder={t('sftp.search')}
                                                 className="h-8 pl-8 pr-8 text-xs bg-muted/30 border-none w-full focus-visible:ring-1"
                                                 value={searchQuery}
                                                 onChange={(e) => setSearchQuery(e.target.value)}
@@ -541,7 +611,7 @@ export default function SFTPPage() {
                                             className="h-8 gap-2 text-xs border-dashed"
                                         >
                                             <FolderPlus className="h-3.5 w-3.5" />
-                                            新建目录
+                                            {t('sftp.newFolder')}
                                         </Button>
                                         <input
                                             ref={fileInputRef}
@@ -556,7 +626,7 @@ export default function SFTPPage() {
                                             onClick={() => fileInputRef.current?.click()}
                                         >
                                             <Upload className="h-3.5 w-3.5" />
-                                            上传文件
+                                            {t('sftp.upload')}
                                         </Button>
                                     </div>
                                 </div>
@@ -577,8 +647,8 @@ export default function SFTPPage() {
                                             <div className="bg-background/90 rounded-2xl px-8 py-6 shadow-2xl border border-primary/20">
                                                 <div className="flex flex-col items-center gap-3">
                                                     <Upload className="h-12 w-12 text-primary animate-bounce" />
-                                                    <p className="text-lg font-semibold text-foreground">释放以上传文件</p>
-                                                    <p className="text-sm text-muted-foreground">支持同时上传多个文件</p>
+                                                    <p className="text-lg font-semibold text-foreground">{t('sftp.dropToUpload')}</p>
+                                                    <p className="text-sm text-muted-foreground">{t('sftp.supportMultiple')}</p>
                                                 </div>
                                             </div>
                                         </div>
@@ -594,7 +664,7 @@ export default function SFTPPage() {
                                                         className="h-8 text-xs font-bold uppercase tracking-wider hover:bg-muted/50 -ml-3"
                                                         onClick={() => handleSort('name')}
                                                     >
-                                                        文件名
+                                                        {t('sftp.fileName')}
                                                         {sortField === 'name' ? (
                                                             sortDirection === 'asc' ? <ArrowUp className="ml-2 h-3 w-3" /> : <ArrowDown className="ml-2 h-3 w-3" />
                                                         ) : (
@@ -609,7 +679,7 @@ export default function SFTPPage() {
                                                         className="h-8 text-xs font-bold uppercase tracking-wider hover:bg-muted/50 -ml-3"
                                                         onClick={() => handleSort('size')}
                                                     >
-                                                        大小
+                                                        {t('sftp.fileSize')}
                                                         {sortField === 'size' ? (
                                                             sortDirection === 'asc' ? <ArrowUp className="ml-2 h-3 w-3" /> : <ArrowDown className="ml-2 h-3 w-3" />
                                                         ) : (
@@ -624,7 +694,7 @@ export default function SFTPPage() {
                                                         className="h-8 text-xs font-bold uppercase tracking-wider hover:bg-muted/50 -ml-3"
                                                         onClick={() => handleSort('modified')}
                                                     >
-                                                        修改时间
+                                                        {t('sftp.modifiedTime')}
                                                         {sortField === 'modified' ? (
                                                             sortDirection === 'asc' ? <ArrowUp className="ml-2 h-3 w-3" /> : <ArrowDown className="ml-2 h-3 w-3" />
                                                         ) : (
@@ -632,7 +702,10 @@ export default function SFTPPage() {
                                                         )}
                                                     </Button>
                                                 </TableHead>
-                                                <TableHead className="text-right text-xs font-bold uppercase tracking-wider">操作</TableHead>
+                                                <TableHead className="text-xs font-bold uppercase tracking-wider">{t('sftp.permissions')}</TableHead>
+                                                <TableHead className="text-xs font-bold uppercase tracking-wider">{t('sftp.owner')}</TableHead>
+                                                <TableHead className="text-xs font-bold uppercase tracking-wider">{t('sftp.group')}</TableHead>
+                                                <TableHead className="text-right text-xs font-bold uppercase tracking-wider">{t('sftp.actions')}</TableHead>
                                             </TableRow>
                                         </TableHeader>
                                         <TableBody>
@@ -650,8 +723,11 @@ export default function SFTPPage() {
                                                     </TableCell>
                                                     <TableCell className="text-sm text-muted-foreground">-</TableCell>
                                                     <TableCell className="text-sm text-muted-foreground">-</TableCell>
+                                                    <TableCell className="text-sm text-muted-foreground">-</TableCell>
+                                                    <TableCell className="text-sm text-muted-foreground">-</TableCell>
+                                                    <TableCell className="text-sm text-muted-foreground">-</TableCell>
                                                     <TableCell className="text-right">
-                                                        <span className="text-xs text-muted-foreground">返回上一层</span>
+                                                        <span className="text-xs text-muted-foreground">{t('sftp.backToParent')}</span>
                                                     </TableCell>
                                                 </TableRow>
                                             )}
@@ -681,6 +757,15 @@ export default function SFTPPage() {
                                                     </TableCell>
                                                     <TableCell className="py-2 text-xs text-muted-foreground">
                                                         {formatDate(file.modified)}
+                                                    </TableCell>
+                                                    <TableCell className="py-2 text-xs text-muted-foreground font-mono">
+                                                        {formatPermissions(file.permissions, file.is_dir)}
+                                                    </TableCell>
+                                                    <TableCell className="py-2 text-xs text-muted-foreground">
+                                                        {file.uid ?? '-'}
+                                                    </TableCell>
+                                                    <TableCell className="py-2 text-xs text-muted-foreground">
+                                                        {file.gid ?? '-'}
                                                     </TableCell>
                                                     <TableCell className="py-2 text-right">
                                                         <div className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
@@ -738,6 +823,18 @@ export default function SFTPPage() {
                                                                 className="h-7 w-7 text-muted-foreground hover:text-primary active:scale-95 transition-all"
                                                                 onClick={(e) => {
                                                                     e.stopPropagation();
+                                                                    handleOpenPermissionsDialog(file);
+                                                                }}
+                                                                title={t('sftp.editPermissions')}
+                                                            >
+                                                                <Shield className="h-3.5 w-3.5" />
+                                                            </Button>
+                                                            <Button
+                                                                variant="ghost"
+                                                                size="icon"
+                                                                className="h-7 w-7 text-muted-foreground hover:text-primary active:scale-95 transition-all"
+                                                                onClick={(e) => {
+                                                                    e.stopPropagation();
                                                                     handleOpenDialog('rename', file);
                                                                 }}
                                                             >
@@ -761,7 +858,7 @@ export default function SFTPPage() {
                                             {filteredFiles.length === 0 && !activeSession.loading && (
                                                 <TableRow className="hover:bg-transparent">
                                                     <TableCell colSpan={4} className="h-40 text-center text-muted-foreground text-sm italic opacity-50">
-                                                        目录为空或未找到相关文件
+                                                        {t('sftp.noFiles')}
                                                     </TableCell>
                                                 </TableRow>
                                             )}
@@ -798,7 +895,7 @@ export default function SFTPPage() {
                             <span className="font-semibold uppercase truncate max-w-[150px]">{activeSession.server?.name || 'Unknown'}</span>
                         </div>
                         <span className="opacity-40">|</span>
-                        <span>{activeSession.files.length} 个项目</span>
+                        <span>{activeSession.files.length} {t('sftp.items')}</span>
                         <span className="opacity-40">|</span>
                         <span className="font-mono">{activeSession.currentPath}</span>
                     </div>
@@ -813,14 +910,14 @@ export default function SFTPPage() {
                 <DialogContent className="sm:max-w-[425px]">
                     <DialogHeader>
                         <DialogTitle>
-                            {operationType === 'create' && "新建目录"}
-                            {operationType === 'rename' && "重命名"}
-                            {operationType === 'delete' && "确认删除"}
+                            {operationType === 'create' && t('sftp.createFolderTitle')}
+                            {operationType === 'rename' && t('sftp.renameTitle')}
+                            {operationType === 'delete' && t('sftp.deleteTitle')}
                         </DialogTitle>
                         <DialogDescription>
-                            {operationType === 'create' && "请输入新目录的名称。"}
-                            {operationType === 'rename' && `正在重命名 "${operationTarget?.name}"。`}
-                            {operationType === 'delete' && `您确定要删除 "${operationTarget?.name}" 吗？此操作不可撤销。`}
+                            {operationType === 'create' && t('sftp.createFolderDesc')}
+                            {operationType === 'rename' && t('sftp.renameDesc', { name: operationTarget?.name })}
+                            {operationType === 'delete' && t('sftp.deleteDesc', { name: operationTarget?.name })}
                         </DialogDescription>
                     </DialogHeader>
 
@@ -828,7 +925,7 @@ export default function SFTPPage() {
                         <div className="grid gap-4 py-4">
                             <div className="grid grid-cols-4 items-center gap-4">
                                 <Label htmlFor="name" className="text-right">
-                                    名称
+                                    {t('sftp.name')}
                                 </Label>
                                 <Input
                                     id="name"
@@ -846,13 +943,107 @@ export default function SFTPPage() {
 
                     <DialogFooter>
                         <Button variant="outline" onClick={() => setIsDialogOpen(false)}>
-                            取消
+                            {t('sftp.cancel')}
                         </Button>
                         <Button
                             variant={operationType === 'delete' ? "destructive" : "default"}
                             onClick={handleConfirmOperation}
                         >
-                            确定
+                            {t('sftp.confirm')}
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+
+            {/* 权限编辑对话框 */}
+            <Dialog open={isPermissionsDialogOpen} onOpenChange={setIsPermissionsDialogOpen}>
+                <DialogContent className="sm:max-w-[500px]">
+                    <DialogHeader>
+                        <DialogTitle className="flex items-center gap-2">
+                            <Shield className="h-5 w-5 text-primary" />
+                            {t('sftp.editPermissions')}
+                        </DialogTitle>
+                        <DialogDescription>
+                            {t('sftp.permissionsDialog.description', { name: permissionsTarget?.name || '' })}
+                        </DialogDescription>
+                    </DialogHeader>
+
+                    <div className="space-y-6 py-4">
+                        <div className="grid grid-cols-4 gap-4 text-sm font-medium text-muted-foreground">
+                            <div></div>
+                            <div className="text-center">{t('sftp.permissionsDialog.read')}</div>
+                            <div className="text-center">{t('sftp.permissionsDialog.write')}</div>
+                            <div className="text-center">{t('sftp.permissionsDialog.execute')}</div>
+                        </div>
+
+                        {/* Owner */}
+                        <div className="grid grid-cols-4 gap-4 items-center">
+                            <Label className="text-sm font-medium">{t('sftp.permissionsDialog.owner')}</Label>
+                            <div className="flex justify-center">
+                                <Switch checked={ownerRead} onCheckedChange={setOwnerRead} />
+                            </div>
+                            <div className="flex justify-center">
+                                <Switch checked={ownerWrite} onCheckedChange={setOwnerWrite} />
+                            </div>
+                            <div className="flex justify-center">
+                                <Switch checked={ownerExecute} onCheckedChange={setOwnerExecute} />
+                            </div>
+                        </div>
+
+                        {/* Group */}
+                        <div className="grid grid-cols-4 gap-4 items-center">
+                            <Label className="text-sm font-medium">{t('sftp.permissionsDialog.group')}</Label>
+                            <div className="flex justify-center">
+                                <Switch checked={groupRead} onCheckedChange={setGroupRead} />
+                            </div>
+                            <div className="flex justify-center">
+                                <Switch checked={groupWrite} onCheckedChange={setGroupWrite} />
+                            </div>
+                            <div className="flex justify-center">
+                                <Switch checked={groupExecute} onCheckedChange={setGroupExecute} />
+                            </div>
+                        </div>
+
+                        {/* Others */}
+                        <div className="grid grid-cols-4 gap-4 items-center">
+                            <Label className="text-sm font-medium">{t('sftp.permissionsDialog.others')}</Label>
+                            <div className="flex justify-center">
+                                <Switch checked={othersRead} onCheckedChange={setOthersRead} />
+                            </div>
+                            <div className="flex justify-center">
+                                <Switch checked={othersWrite} onCheckedChange={setOthersWrite} />
+                            </div>
+                            <div className="flex justify-center">
+                                <Switch checked={othersExecute} onCheckedChange={setOthersExecute} />
+                            </div>
+                        </div>
+
+                        {/* 权限预览 */}
+                        <div className="mt-4 p-3 bg-muted/30 rounded-md">
+                            <div className="text-xs text-muted-foreground mb-1">{t('sftp.permissionsDialog.preview')}</div>
+                            <div className="font-mono text-sm">
+                                {formatPermissions(
+                                    (ownerRead ? 0o400 : 0) |
+                                    (ownerWrite ? 0o200 : 0) |
+                                    (ownerExecute ? 0o100 : 0) |
+                                    (groupRead ? 0o040 : 0) |
+                                    (groupWrite ? 0o020 : 0) |
+                                    (groupExecute ? 0o010 : 0) |
+                                    (othersRead ? 0o004 : 0) |
+                                    (othersWrite ? 0o002 : 0) |
+                                    (othersExecute ? 0o001 : 0),
+                                    permissionsTarget?.is_dir || false
+                                )}
+                            </div>
+                        </div>
+                    </div>
+
+                    <DialogFooter>
+                        <Button variant="outline" onClick={() => setIsPermissionsDialogOpen(false)}>
+                            {t('sftp.cancel')}
+                        </Button>
+                        <Button onClick={handleSavePermissions}>
+                            {t('common.save')}
                         </Button>
                     </DialogFooter>
                 </DialogContent>

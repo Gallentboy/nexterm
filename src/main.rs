@@ -290,7 +290,7 @@ async fn sftp_handler(
     session: Session,
     axum::extract::State(state): axum::extract::State<AppState>,
 ) -> impl IntoResponse {
-    info!(
+    debug!(
         "SFTP WebSocket 连接请求 - session ID: {:?}, 用户: {:?} (ID: {:?})",
         session.id(),
         session.get::<String>("username").await.ok().flatten(),

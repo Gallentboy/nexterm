@@ -54,6 +54,8 @@ pub enum SftpClientCommand {
     ReadFileContent { path: String },
     /// 保存文件内容
     SaveFileContent { path: String, content: String },
+    /// 修改文件权限
+    SetPermissions { path: String, permissions: u32 },
 }
 
 /// 服务器消息
@@ -95,6 +97,8 @@ pub struct FileEntry {
     pub size: u64,
     pub modified: Option<u64>,
     pub permissions: Option<u32>,
+    pub uid: Option<u32>,
+    pub gid: Option<u32>,
     pub is_content_editable: bool,
 }
 
@@ -169,13 +173,13 @@ impl SftpConnectionGuard {
 impl Drop for SftpConnectionGuard {
     fn drop(&mut self) {
         if let Some(conn) = self.conn.take() {
-            tracing::info!("正在关闭 SFTP 连接...");
+            tracing::debug!("正在关闭 SFTP 连接...");
             // 在 Drop 中不能使用 async,所以使用 tokio::spawn
             tokio::spawn(async move {
                 if let Err(e) = conn.close().await {
                     tracing::error!("关闭 SFTP 连接失败: {}", e);
                 } else {
-                    tracing::info!("SFTP 连接已关闭");
+                    tracing::debug!("SFTP 连接已关闭");
                 }
             });
         }
@@ -273,7 +277,7 @@ pub async fn handle_sftp_socket(mut socket: WebSocket, session: Session, state: 
     // 使用 Guard 确保连接总是被关闭
     let mut sftp_guard = SftpConnectionGuard::new(sftp_conn);
 
-    info!("SFTP 连接成功");
+    debug!("SFTP 连接成功");
 
     // 4. 通知客户端连接成功
     let _ = socket
@@ -390,7 +394,7 @@ pub async fn handle_sftp_socket(mut socket: WebSocket, session: Session, state: 
         .await;
 
     // sftp_guard 会在这里自动 Drop,触发连接关闭
-    info!("SFTP 会话结束");
+    debug!("SFTP 会话结束");
 }
 
 /// 处理 SFTP 命令
@@ -417,6 +421,8 @@ async fn handle_sftp_command(
                     size,
                     modified: attr.mtime.map(|t| t as u64),
                     permissions: attr.permissions,
+                    uid: attr.uid,
+                    gid: attr.gid,
                 });
             }
 
@@ -798,6 +804,47 @@ async fn handle_sftp_command(
                 .send(Message::Text(
                     serde_json::to_string(&SftpServerMessage::Success {
                         message: "文件保存成功".to_string(),
+                    })?
+                    .into(),
+                ))
+                .await?;
+        }
+
+        SftpClientCommand::SetPermissions { path, permissions } => {
+            debug!("修改文件权限: {} -> {:o}", path, permissions);
+            
+            // 获取当前文件的完整属性
+            let current_attrs = sftp_conn.sftp.metadata(&path).await?;
+            let current_perms = current_attrs.permissions.unwrap_or(0);
+            
+            // 保留文件类型位 (高位),只修改权限位 (低9位)
+            // 文件类型位在高位 (0o170000),权限位在低9位 (0o777)
+            let new_perms = (current_perms & 0o170000) | (permissions & 0o777);
+            
+            debug!("当前权限: {:o}, 新权限: {:o}", current_perms, new_perms);
+            
+            // 使用当前的 metadata,只修改权限字段
+            use russh_sftp::protocol::FileAttributes;
+            
+            // 从当前属性创建新的 FileAttributes,保留所有原有属性
+            let attrs = FileAttributes {
+                size: current_attrs.size,
+                uid: current_attrs.uid,
+                user: current_attrs.user.clone(),
+                gid: current_attrs.gid,
+                group: current_attrs.group.clone(),
+                permissions: Some(new_perms),
+                atime: current_attrs.atime,
+                mtime: current_attrs.mtime,
+            };
+            
+            // 使用 set_metadata 方法
+            sftp_conn.sftp.set_metadata(&path, attrs.into()).await?;
+
+            socket
+                .send(Message::Text(
+                    serde_json::to_string(&SftpServerMessage::Success {
+                        message: format!("权限已更新为 {:o}", permissions),
                     })?
                     .into(),
                 ))

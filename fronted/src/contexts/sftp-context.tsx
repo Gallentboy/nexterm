@@ -14,6 +14,8 @@ export interface FileEntry {
     size: number;
     modified: number | null;
     permissions: number | null;
+    uid: number | null;
+    gid: number | null;
     is_content_editable: boolean;
 }
 
@@ -49,6 +51,7 @@ interface SFTPContextType {
     getFileBlob: (id: string, path: string) => Promise<Blob>;
     readFile: (sessionId: string, path: string) => Promise<string>;
     saveFile: (sessionId: string, path: string, content: string) => Promise<void>;
+    setPermissions: (sessionId: string, path: string, permissions: number) => void;
 }
 
 const SFTPContext = createContext<SFTPContextType | undefined>(undefined);
@@ -399,6 +402,13 @@ export function SFTPProvider({ children }: { children: React.ReactNode }) {
         }
     };
 
+    const setPermissions = (id: string, path: string, permissions: number) => {
+        const session = sessionsRef.current[id];
+        if (session?.socket?.readyState === WebSocket.OPEN) {
+            session.socket.send(JSON.stringify({ type: 'set_permissions', path, permissions }));
+        }
+    };
+
     const cancelUpload = useCallback((id: string) => {
         const session = sessionsRef.current[id];
         if (session?.socket?.readyState === WebSocket.OPEN) {
@@ -534,6 +544,7 @@ export function SFTPProvider({ children }: { children: React.ReactNode }) {
             }, [updateSession]),
             createDir,
             rename,
+            setPermissions,
             uploadFile,
             cancelUpload,
             downloadFile,
