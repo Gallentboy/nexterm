@@ -483,12 +483,8 @@ export function SFTPProvider({ children }: { children: React.ReactNode }) {
 
                 reader.onload = (e) => {
                     if (e.target?.result instanceof ArrayBuffer) {
-                        const data = Array.from(new Uint8Array(e.target.result));
-                        currentSession.socket?.send(JSON.stringify({
-                            type: 'upload_file_chunk',
-                            chunk_id: chunkId,
-                            data
-                        }));
+                        // 直接发送二进制数据，不再使用 JSON
+                        currentSession.socket?.send(e.target.result);
                         chunkId++;
                         // 添加小延迟让后端处理并返回进度
                         setTimeout(uploadNextChunk, 50);

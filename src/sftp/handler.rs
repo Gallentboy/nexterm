@@ -31,8 +31,6 @@ pub enum SftpClientCommand {
     DownloadFile { path: String },
     /// 上传文件开始
     UploadFileStart { path: String, total_size: u64 },
-    /// 上传文件块
-    UploadFileChunk { chunk_id: u64, data: Vec<u8> },
     /// 上传文件完成
     UploadFileEnd,
     /// 取消上传
@@ -288,23 +286,37 @@ pub async fn handle_sftp_socket(mut socket: WebSocket, session: Session, state: 
 
     // 5. 上传状态管理
     let mut upload_state: Option<UploadState> = None;
+    let mut check_handle = tokio::time::interval(Duration::from_secs(30));
 
     // 6. 处理命令循环
-    while let Some(msg) = socket.recv().await {
-        // 检查上传超时
-        if let Some(ref state) = upload_state {
-            if state.is_timeout() {
-                warn!(
-                    "上传超时,自动清理: {} ({}/{} 字节)",
-                    state.path, state.received, state.total_size
-                );
-                upload_state = None;
-                let _ = send_sftp_error(&mut socket, "上传超时,已自动取消".to_string()).await;
+    loop {
+        tokio::select! {
+            // 定期检查上传超时
+            _ = check_handle.tick() => {
+                if let Some(ref state) = upload_state {
+                    if state.is_timeout() {
+                        warn!(
+                            "上传超时,自动清理: {} ({}/{} 字节)",
+                            state.path, state.received, state.total_size
+                        );
+                        upload_state = None;
+                        let _ = send_sftp_error(&mut socket, "上传超时,已自动取消".to_string()).await;
+                    }
+                }
             }
-        }
+            // 处理 WebSocket 消息
+            msg = socket.recv() => {
+                let msg = match msg {
+                    Some(Ok(m)) => m,
+                    Some(Err(e)) => {
+                        error!("WebSocket 接收错误: {}", e);
+                        break;
+                    }
+                    None => break,
+                };
 
-        match msg {
-            Ok(Message::Text(text)) => {
+                match msg {
+            Message::Text(text) => {
                 if let Ok(cmd) = serde_json::from_str::<SftpClientCommand>(&text) {
                     if let Err(e) = handle_sftp_command(
                         sftp_guard.get_mut(),
@@ -323,7 +335,35 @@ pub async fn handle_sftp_socket(mut socket: WebSocket, session: Session, state: 
                     warn!("无法解析 SFTP 命令: {}", text);
                 }
             }
-            Ok(Message::Close(reason)) => {
+            Message::Binary(data) => {
+                // 处理二进制文件块
+                if let Some(ref mut state) = upload_state {
+                    if let Some(ref mut file) = state.file {
+                        match file.write_all(&data).await {
+                            Ok(_) => {
+                                state.received += data.len() as u64;
+                                state.update_activity();
+                                
+                                // 发送上传进度
+                                let _ = socket.send(Message::Text(
+                                    serde_json::to_string(&SftpServerMessage::UploadProgress {
+                                        received: state.received,
+                                        total: state.total_size,
+                                    }).unwrap().into(),
+                                )).await;
+                            }
+                            Err(e) => {
+                                error!("写入文件失败: {}", e);
+                                let _ = send_sftp_error(&mut socket, format!("写入文件失败: {}", e)).await;
+                                upload_state = None;
+                            }
+                        }
+                    }
+                } else {
+                    warn!("收到二进制数据但没有活跃的上传会话");
+                }
+            }
+            Message::Close(reason) => {
                 if let Some(frame) = reason {
                     debug!("客户端关闭 SFTP: {}[{}]", frame.code, frame.reason);
                 } else {
@@ -331,11 +371,9 @@ pub async fn handle_sftp_socket(mut socket: WebSocket, session: Session, state: 
                 }
                 break;
             }
-            Err(e) => {
-                error!("WebSocket 错误: {}", e);
-                break;
-            }
             _ => {}
+        }
+            }
         }
     }
 
@@ -496,41 +534,7 @@ async fn handle_sftp_command(
                     serde_json::to_string(&SftpServerMessage::Success {
                         message: "准备接收文件".to_string(),
                     })?
-                    .into(),
-                ))
-                .await?;
-        }
-
-        SftpClientCommand::UploadFileChunk { chunk_id, data } => {
-            let state = upload_state
-                .as_mut()
-                .ok_or_else(|| anyhow!("没有活动的上传会话"))?;
-
-            let file = state.file.as_mut().ok_or_else(|| anyhow!("文件未打开"))?;
-
-            // 写入数据
-            file.write_all(&data).await?;
-            state.received += data.len() as u64;
-
-            // 更新活动时间
-            state.update_activity();
-
-            debug!(
-                "接收文件块 #{}: {} 字节 ({}/{})",
-                chunk_id,
-                data.len(),
-                state.received,
-                state.total_size
-            );
-
-            // 发送进度
-            socket
-                .send(Message::Text(
-                    serde_json::to_string(&SftpServerMessage::UploadProgress {
-                        received: state.received,
-                        total: state.total_size,
-                    })?
-                    .into(),
+                                .into(),
                 ))
                 .await?;
         }
