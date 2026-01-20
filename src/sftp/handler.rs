@@ -420,10 +420,14 @@ async fn handle_sftp_command(
                 });
             }
 
+            // 获取绝对路径
+            let absolute_path = sftp_conn.sftp.canonicalize(&path).await
+                .unwrap_or_else(|_| path.clone().into());
+
             socket
                 .send(Message::Text(
                     serde_json::to_string(&SftpServerMessage::DirList {
-                        path: path.clone(),
+                        path: absolute_path,
                         entries,
                     })?
                     .into(),

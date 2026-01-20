@@ -187,10 +187,25 @@ export default function SFTPPage() {
 
     const handleBack = () => {
         if (!activeSession) return;
-        const parts = activeSession.currentPath.split('/');
-        parts.pop();
-        const newPath = parts.join('/') || '.';
-        listDir(activeSession.id, newPath);
+
+        const currentPath = activeSession.currentPath;
+
+        // 如果已经在根目录，不执行操作
+        if (currentPath === '/' || currentPath === '.') return;
+
+        // 处理绝对路径
+        if (currentPath.startsWith('/')) {
+            const parts = currentPath.split('/').filter(p => p);
+            parts.pop();
+            const newPath = '/' + parts.join('/');
+            listDir(activeSession.id, newPath || '/');
+        } else {
+            // 处理相对路径
+            const parts = currentPath.split('/');
+            parts.pop();
+            const newPath = parts.join('/') || '.';
+            listDir(activeSession.id, newPath);
+        }
     };
 
     const handleSort = (field: SortField) => {
@@ -622,7 +637,7 @@ export default function SFTPPage() {
                                         </TableHeader>
                                         <TableBody>
                                             {/* 返回上一层目录 */}
-                                            {activeSession && activeSession.currentPath !== '.' && (
+                                            {activeSession && (
                                                 <TableRow
                                                     className="group cursor-pointer hover:bg-muted/30 transition-colors border-border/20"
                                                     onClick={handleBack}
