@@ -15,7 +15,9 @@ import {
     Pencil,
     Upload,
     Edit3,
-    Eye
+    Eye,
+    ArrowUpDown,
+    ArrowDown
 } from 'lucide-react';
 import { getServers, type Server } from '@/api/server';
 import { toast } from 'sonner';
@@ -93,6 +95,12 @@ export default function SFTPPage() {
     const [isPdfViewerOpen, setIsPdfViewerOpen] = useState(false);
     const [pdfFile, setPdfFile] = useState<FileEntry | null>(null);
     const sessionList = Object.values(sessions).filter(s => s && s.server);
+
+    // 排序状态
+    type SortField = 'name' | 'size' | 'modified';
+    type SortDirection = 'asc' | 'desc';
+    const [sortField, setSortField] = useState<SortField>('name');
+    const [sortDirection, setSortDirection] = useState<SortDirection>('asc');
 
     useEffect(() => {
         loadServers();
@@ -185,9 +193,43 @@ export default function SFTPPage() {
         listDir(activeSession.id, newPath);
     };
 
+    const handleSort = (field: SortField) => {
+        if (sortField === field) {
+            setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
+        } else {
+            setSortField(field);
+            setSortDirection('asc');
+        }
+    };
+
     const filteredFiles = activeSession?.files.filter(f =>
         f.name.toLowerCase().includes(searchQuery.toLowerCase())
     ) || [];
+
+    // 排序文件列表（文件夹始终在前）
+    const sortedFiles = [...filteredFiles].sort((a, b) => {
+        // 文件夹优先
+        if (a.is_dir !== b.is_dir) {
+            return a.is_dir ? -1 : 1;
+        }
+
+        let comparison = 0;
+        switch (sortField) {
+            case 'name':
+                comparison = a.name.localeCompare(b.name);
+                break;
+            case 'size':
+                comparison = a.size - b.size;
+                break;
+            case 'modified':
+                const aTime = a.modified || 0;
+                const bTime = b.modified || 0;
+                comparison = aTime - bTime;
+                break;
+        }
+
+        return sortDirection === 'asc' ? comparison : -comparison;
+    });
 
     const handleOpenDialog = (type: 'create' | 'rename' | 'delete', target?: FileEntry) => {
         setOperationType(type);
@@ -530,14 +572,56 @@ export default function SFTPPage() {
                                     <Table>
                                         <TableHeader className="sticky top-0 bg-background z-10 shadow-sm shadow-border/10">
                                             <TableRow className="hover:bg-transparent border-border/40">
-                                                <TableHead className="w-[450px] text-xs font-bold uppercase tracking-wider">文件名</TableHead>
-                                                <TableHead className="text-xs font-bold uppercase tracking-wider">大小</TableHead>
-                                                <TableHead className="text-xs font-bold uppercase tracking-wider">修改时间</TableHead>
+                                                <TableHead className="w-[450px]">
+                                                    <Button
+                                                        variant="ghost"
+                                                        size="sm"
+                                                        className="h-8 text-xs font-bold uppercase tracking-wider hover:bg-muted/50 -ml-3"
+                                                        onClick={() => handleSort('name')}
+                                                    >
+                                                        文件名
+                                                        {sortField === 'name' ? (
+                                                            sortDirection === 'asc' ? <ArrowUp className="ml-2 h-3 w-3" /> : <ArrowDown className="ml-2 h-3 w-3" />
+                                                        ) : (
+                                                            <ArrowUpDown className="ml-2 h-3 w-3 opacity-40" />
+                                                        )}
+                                                    </Button>
+                                                </TableHead>
+                                                <TableHead>
+                                                    <Button
+                                                        variant="ghost"
+                                                        size="sm"
+                                                        className="h-8 text-xs font-bold uppercase tracking-wider hover:bg-muted/50 -ml-3"
+                                                        onClick={() => handleSort('size')}
+                                                    >
+                                                        大小
+                                                        {sortField === 'size' ? (
+                                                            sortDirection === 'asc' ? <ArrowUp className="ml-2 h-3 w-3" /> : <ArrowDown className="ml-2 h-3 w-3" />
+                                                        ) : (
+                                                            <ArrowUpDown className="ml-2 h-3 w-3 opacity-40" />
+                                                        )}
+                                                    </Button>
+                                                </TableHead>
+                                                <TableHead>
+                                                    <Button
+                                                        variant="ghost"
+                                                        size="sm"
+                                                        className="h-8 text-xs font-bold uppercase tracking-wider hover:bg-muted/50 -ml-3"
+                                                        onClick={() => handleSort('modified')}
+                                                    >
+                                                        修改时间
+                                                        {sortField === 'modified' ? (
+                                                            sortDirection === 'asc' ? <ArrowUp className="ml-2 h-3 w-3" /> : <ArrowDown className="ml-2 h-3 w-3" />
+                                                        ) : (
+                                                            <ArrowUpDown className="ml-2 h-3 w-3 opacity-40" />
+                                                        )}
+                                                    </Button>
+                                                </TableHead>
                                                 <TableHead className="text-right text-xs font-bold uppercase tracking-wider">操作</TableHead>
                                             </TableRow>
                                         </TableHeader>
                                         <TableBody>
-                                            {filteredFiles.map((file) => (
+                                            {sortedFiles.map((file) => (
                                                 <TableRow
                                                     key={file.name}
                                                     className="group cursor-default hover:bg-muted/30 transition-colors border-border/20"
