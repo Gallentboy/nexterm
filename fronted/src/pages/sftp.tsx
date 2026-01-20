@@ -621,6 +621,25 @@ export default function SFTPPage() {
                                             </TableRow>
                                         </TableHeader>
                                         <TableBody>
+                                            {/* 返回上一层目录 */}
+                                            {activeSession && activeSession.currentPath !== '.' && (
+                                                <TableRow
+                                                    className="group cursor-pointer hover:bg-muted/30 transition-colors border-border/20"
+                                                    onClick={handleBack}
+                                                >
+                                                    <TableCell className="py-2">
+                                                        <div className="flex items-center gap-3">
+                                                            <ArrowUp className="h-4.5 w-4.5 text-muted-foreground" />
+                                                            <span className="text-sm font-medium text-muted-foreground">..</span>
+                                                        </div>
+                                                    </TableCell>
+                                                    <TableCell className="text-sm text-muted-foreground">-</TableCell>
+                                                    <TableCell className="text-sm text-muted-foreground">-</TableCell>
+                                                    <TableCell className="text-right">
+                                                        <span className="text-xs text-muted-foreground">返回上一层</span>
+                                                    </TableCell>
+                                                </TableRow>
+                                            )}
                                             {sortedFiles.map((file) => (
                                                 <TableRow
                                                     key={file.name}
