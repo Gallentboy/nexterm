@@ -18,3 +18,4 @@ Cargo.lock
 *.iml
 .vscode/
 .claude/
+rust-toolchain.toml
