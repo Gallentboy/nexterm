@@ -1,6 +1,5 @@
 # Rust
 /target
-Cargo.lock
 
 # 数据库文件
 *.db
