@@ -366,8 +366,8 @@ export default function SFTPPage() {
         const files = e.target.files;
         if (!files || files.length === 0 || !activeSession) return;
 
-        // 检查是否正在上传
-        if (activeSession.isUploading) {
+        // 检查是否正在上传或下载
+        if (activeSession.isUploading || activeSession.isDownloading) {
             toast.error(t('sftp.uploadInProgress'));
             return;
         }
@@ -409,9 +409,9 @@ export default function SFTPPage() {
 
         if (!activeSession) return;
 
-        // 检查是否正在上传
-        if (activeSession.isUploading) {
-            toast.error('已有文件正在上传,请等待完成');
+        // 检查是否正在上传或下载
+        if (activeSession.isUploading || activeSession.isDownloading) {
+            toast.error('已有文件正在上传或下载,请等待完成');
             return;
         }
 
@@ -511,47 +511,69 @@ export default function SFTPPage() {
                         <>
                             {/* SFTP 操作区容器 */}
                             <div className="flex-1 flex flex-col min-h-0 relative">
-                                {/* 磨砂蒙层 - 仅在上传时显示 */}
-                                {activeSession.isUploading && (
+                                {/* 磨砂蒙层 - 在上传或下载时显示 */}
+                                {(activeSession.isUploading || activeSession.isDownloading) && (
                                     <div className="absolute inset-0 z-50 flex items-center justify-center animate-in fade-in duration-300">
                                         <div className="absolute inset-0 bg-background/20 backdrop-blur-[2px]" />
                                         <Card className="z-10 w-[320px] shadow-2xl border-primary/20 bg-background/95 backdrop-blur-md">
                                             <CardContent className="p-6">
                                                 <div className="flex flex-col items-center gap-4">
                                                     <div className="h-12 w-12 rounded-full bg-primary/10 flex items-center justify-center">
-                                                        <Upload className="h-6 w-6 text-primary animate-bounce" />
+                                                        {activeSession.isUploading ? (
+                                                            <Upload className="h-6 w-6 text-primary animate-bounce" />
+                                                        ) : (
+                                                            <Download className="h-6 w-6 text-primary animate-bounce" />
+                                                        )}
                                                     </div>
                                                     <div className="text-center space-y-1">
-                                                        <h3 className="font-semibold text-sm">{t('sftp.uploading')}</h3>
+                                                        <h3 className="font-semibold text-sm">
+                                                            {activeSession.isUploading ? t('sftp.uploading') : t('sftp.downloading')}
+                                                        </h3>
                                                         <p className="text-[10px] text-muted-foreground truncate max-w-[240px]">
-                                                            {activeSession.uploadingFileName}
+                                                            {activeSession.isUploading
+                                                                ? activeSession.uploadingFileName
+                                                                : activeSession.downloadingFileName}
                                                         </p>
                                                     </div>
 
                                                     <div className="w-full space-y-2">
                                                         <div className="flex justify-between text-[10px] font-mono">
-                                                            <span className="text-muted-foreground">{t('sftp.uploadProgress')}</span>
-                                                            <span className="text-primary">{activeSession.uploadProgress}%</span>
+                                                            <span className="text-muted-foreground">
+                                                                {activeSession.isUploading
+                                                                    ? t('sftp.uploadProgress')
+                                                                    : t('sftp.downloadProgress')}
+                                                            </span>
+                                                            <span className="text-primary">
+                                                                {activeSession.isUploading
+                                                                    ? activeSession.uploadProgress
+                                                                    : activeSession.downloadProgress}%
+                                                            </span>
                                                         </div>
                                                         <div className="w-full bg-primary/10 rounded-full h-1.5 overflow-hidden">
                                                             <div
                                                                 className="bg-primary h-full transition-all duration-300 shadow-[0_0_8px_rgba(var(--primary),0.4)]"
-                                                                style={{ width: `${activeSession.uploadProgress}%` }}
+                                                                style={{
+                                                                    width: `${activeSession.isUploading
+                                                                        ? activeSession.uploadProgress
+                                                                        : activeSession.downloadProgress}%`
+                                                                }}
                                                             />
                                                         </div>
                                                     </div>
 
-                                                    <Button
-                                                        variant="outline"
-                                                        size="sm"
-                                                        className="mt-2 h-8 text-[11px] rounded-lg border-destructive/20 text-destructive hover:bg-destructive/5"
-                                                        onClick={(e) => {
-                                                            e.stopPropagation();
-                                                            cancelUpload(activeSession.id);
-                                                        }}
-                                                    >
-                                                        {t('sftp.cancelUpload')}
-                                                    </Button>
+                                                    {activeSession.isUploading && (
+                                                        <Button
+                                                            variant="outline"
+                                                            size="sm"
+                                                            className="mt-2 h-8 text-[11px] rounded-lg border-destructive/20 text-destructive hover:bg-destructive/5"
+                                                            onClick={(e) => {
+                                                                e.stopPropagation();
+                                                                cancelUpload(activeSession.id);
+                                                            }}
+                                                        >
+                                                            {t('sftp.cancelUpload')}
+                                                        </Button>
+                                                    )}
                                                 </div>
                                             </CardContent>
                                         </Card>
@@ -561,7 +583,7 @@ export default function SFTPPage() {
                                 {/* SFTP Toolbar */}
                                 <div className={cn(
                                     "p-2 border-b border-border/40 flex items-center justify-between bg-muted/5 gap-4 transition-all duration-300",
-                                    activeSession.isUploading && "blur-[1px] opacity-60 pointer-events-none"
+                                    (activeSession.isUploading || activeSession.isDownloading) && "blur-[1px] opacity-60 pointer-events-none"
                                 )}>
                                     <div className="flex items-center gap-2 flex-1 min-w-0">
                                         <Button variant="ghost" size="icon" onClick={handleBack} className="h-8 w-8 hover:bg-muted text-muted-foreground">
@@ -635,14 +657,14 @@ export default function SFTPPage() {
                                 <div
                                     className={cn(
                                         "flex-1 overflow-auto relative min-h-0 bg-background/50 transition-all duration-300",
-                                        activeSession.isUploading && "blur-[1px] opacity-60 pointer-events-none"
+                                        (activeSession.isUploading || activeSession.isDownloading) && "blur-[1px] opacity-60 pointer-events-none"
                                     )}
                                     onDragOver={handleDragOver}
                                     onDragLeave={handleDragLeave}
                                     onDrop={handleDrop}
                                 >
                                     {/* Drag Overlay */}
-                                    {isDragging && !activeSession.isUploading && (
+                                    {isDragging && !activeSession.isUploading && !activeSession.isDownloading && (
                                         <div className="absolute inset-0 z-30 bg-primary/10 backdrop-blur-sm border-2 border-dashed border-primary rounded-2xl flex items-center justify-center pointer-events-none">
                                             <div className="bg-background/90 rounded-2xl px-8 py-6 shadow-2xl border border-primary/20">
                                                 <div className="flex flex-col items-center gap-3">

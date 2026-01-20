@@ -132,6 +132,8 @@
         "uploadProgress": "进度",
         "cancelUpload": "取消上传",
         "uploadInProgress": "已有文件正在上传,请等待完成",
+        "downloading": "正在下载文件",
+        "downloadProgress": "进度",
         "dropToUpload": "释放以上传文件",
         "supportMultiple": "支持同时上传多个文件",
         "backToParent": "返回上一层",

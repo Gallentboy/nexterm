@@ -33,6 +33,7 @@ export interface SFTPSession {
     downloadingFileName: string | null;
     downloadProgress: number;
     isUploading: boolean;  // 是否正在上传
+    isDownloading: boolean;  // 是否正在下载
 }
 
 interface SFTPContextType {
@@ -115,6 +116,7 @@ export function SFTPProvider({ children }: { children: React.ReactNode }) {
             downloadingFileName: null,
             downloadProgress: 0,
             isUploading: false,
+            isDownloading: false,
         };
 
         setSessions(prev => ({ ...prev, [id]: session }));
@@ -193,6 +195,9 @@ export function SFTPProvider({ children }: { children: React.ReactNode }) {
                     case 'download_start': {
                         const fileName = sessionsRef.current[id]?.downloadingFileName || 'download';
 
+                        // 设置下载状态为 true
+                        updateSession(id, { isDownloading: true });
+
                         // 使用 StreamSaver 创建可写流
                         const fileStream = streamSaver.createWriteStream(fileName, {
                             size: msg.total_size, // 提供文件大小以显示准确的进度
@@ -249,7 +254,7 @@ export function SFTPProvider({ children }: { children: React.ReactNode }) {
                                         blobCallback(blob);
                                     }
 
-                                    updateSession(id, { downloadingFileName: null, downloadProgress: 0 });
+                                    updateSession(id, { downloadingFileName: null, downloadProgress: 0, isDownloading: false });
                                 } else if (finalDownloadState.chunks.length < finalDownloadState.expectedChunks) {
                                     setTimeout(checkAndFinish, 50);
                                 } else {
@@ -278,12 +283,15 @@ export function SFTPProvider({ children }: { children: React.ReactNode }) {
                         break;
                     case 'error':
                         toast.error(msg.message);
-                        // 错误时重置上传状态
+                        // 错误时重置上传和下载状态
                         updateSession(id, {
                             loading: false,
                             isUploading: false,
                             uploadingFileName: null,
-                            uploadProgress: 0
+                            uploadProgress: 0,
+                            isDownloading: false,
+                            downloadingFileName: null,
+                            downloadProgress: 0
                         });
                         break;
                     case 'closed':

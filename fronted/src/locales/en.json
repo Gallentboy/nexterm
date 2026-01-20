@@ -272,6 +272,8 @@
         "uploadProgress": "Progress",
         "cancelUpload": "Cancel Upload",
         "uploadInProgress": "A file is already being uploaded, please wait",
+        "downloading": "Downloading file",
+        "downloadProgress": "Progress",
         "dropToUpload": "Drop files here to upload",
         "supportMultiple": "Supports multiple file upload",
         "backToParent": "Back to parent",
