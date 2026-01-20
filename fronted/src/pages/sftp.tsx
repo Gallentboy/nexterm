@@ -637,7 +637,7 @@ export default function SFTPPage() {
                                         </TableHeader>
                                         <TableBody>
                                             {/* 返回上一层目录 */}
-                                            {activeSession && (
+                                            {activeSession && activeSession.currentPath !== '/' && activeSession.currentPath !== '.' && (
                                                 <TableRow
                                                     className="group cursor-pointer hover:bg-muted/30 transition-colors border-border/20"
                                                     onClick={handleBack}
