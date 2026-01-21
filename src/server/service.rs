@@ -237,7 +237,7 @@ impl ServerService {
             UPDATE remote_servers 
             SET name = ?, host = ?, port = ?, username = ?, auth_type = ?,
                 password = ?, private_key = ?, description = ?, tags = ?,
-                updated_at = CURRENT_TIMESTAMP, updated_by_username = ?
+                updated_at = datetime('now', 'localtime'), updated_by_username = ?
             WHERE id = ? AND user_id = ?
             "#,
         )
@@ -298,7 +298,7 @@ impl ServerService {
         let server_name = server.name.clone();
 
         sqlx::query(
-            "UPDATE remote_servers SET is_active = 0, updated_at = CURRENT_TIMESTAMP, updated_by_username = ? WHERE id = ? AND user_id = ?"
+            "UPDATE remote_servers SET is_active = 0, updated_at = datetime('now', 'localtime'), updated_by_username = ? WHERE id = ? AND user_id = ?"
         )
         .bind(username)
         .bind(server_id)
@@ -339,7 +339,7 @@ impl ServerService {
 
         // 软删除
         let query_str = format!(
-            "UPDATE remote_servers SET is_active = 0, updated_at = CURRENT_TIMESTAMP, updated_by_username = ? WHERE id IN ({}) AND user_id = ?",
+            "UPDATE remote_servers SET is_active = 0, updated_at = datetime('now', 'localtime'), updated_by_username = ? WHERE id IN ({}) AND user_id = ?",
             placeholders
         );
 
@@ -370,7 +370,7 @@ impl ServerService {
     /// @author zhangyue
     /// @date 2026-01-16
     pub async fn update_last_connected(&self, server_id: i64) -> Result<()> {
-        sqlx::query("UPDATE remote_servers SET last_connected_at = CURRENT_TIMESTAMP WHERE id = ?")
+        sqlx::query("UPDATE remote_servers SET last_connected_at = datetime('now', 'localtime') WHERE id = ?")
             .bind(server_id)
             .execute(&self.pool)
             .await?;

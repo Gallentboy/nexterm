@@ -92,7 +92,7 @@ impl UserService {
 
         // 更新最后登录时间
         sqlx::query(
-            "UPDATE users SET last_login_at = CURRENT_TIMESTAMP WHERE id = ?"
+            "UPDATE users SET last_login_at = datetime('now', 'localtime') WHERE id = ?"
         )
         .bind(user.id)
         .execute(&self.pool)
@@ -150,7 +150,7 @@ impl UserService {
 
         // 更新密码
         sqlx::query(
-            "UPDATE users SET password_hash = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?"
+            "UPDATE users SET password_hash = ?, updated_at = datetime('now', 'localtime') WHERE id = ?"
         )
         .bind(&new_hash)
         .bind(user_id)
@@ -166,7 +166,7 @@ impl UserService {
     /// @date 2026-01-16
     pub async fn deactivate(&self, user_id: i64) -> Result<()> {
         sqlx::query(
-            "UPDATE users SET is_active = 0, updated_at = CURRENT_TIMESTAMP WHERE id = ?"
+            "UPDATE users SET is_active = 0, updated_at = datetime('now', 'localtime') WHERE id = ?"
         )
         .bind(user_id)
         .execute(&self.pool)
