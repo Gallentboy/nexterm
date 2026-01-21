@@ -185,7 +185,7 @@ pub async fn handle_socket(mut socket: WebSocket, session: Session, state: crate
             return;
         }
     }
-    info!("SSH 连接成功");
+    debug!("SSH 连接成功");
 
     // 6. 通知客户端
     let _ = socket
