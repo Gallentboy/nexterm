@@ -36,12 +36,12 @@ impl SshSessionGuard {
 impl Drop for SshSessionGuard {
     fn drop(&mut self) {
         if let Some(handle) = self.handle.take() {
-            info!("正在关闭 SSH 连接...");
+            debug!("正在关闭 SSH 连接...");
             tokio::spawn(async move {
                 if let Err(e) = handle.disconnect(Disconnect::ByApplication, "", "").await {
                     error!("关闭 SSH 连接失败: {}", e);
                 } else {
-                    info!("SSH 连接已关闭");
+                    debug!("SSH 连接已关闭");
                 }
             });
         }
