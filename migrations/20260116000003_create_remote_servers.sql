@@ -11,8 +11,8 @@ CREATE TABLE IF NOT EXISTS remote_servers (
     private_key TEXT,
     description TEXT,
     tags TEXT,  -- JSON array
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    created_at DATETIME DEFAULT (datetime('now', 'localtime')),
+    updated_at DATETIME DEFAULT (datetime('now', 'localtime')),
     last_connected_at DATETIME,
     is_active INTEGER DEFAULT 1,
     FOREIGN KEY (user_id) REFERENCES users(id)
@@ -29,7 +29,7 @@ CREATE TABLE IF NOT EXISTS server_groups (
     user_id INTEGER NOT NULL,
     name TEXT NOT NULL,
     description TEXT,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    created_at DATETIME DEFAULT (datetime('now', 'localtime')),
     FOREIGN KEY (user_id) REFERENCES users(id)
 );
 
@@ -38,7 +38,7 @@ CREATE TABLE IF NOT EXISTS server_group_members (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     server_id INTEGER NOT NULL,
     group_id INTEGER NOT NULL,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    created_at DATETIME DEFAULT (datetime('now', 'localtime')),
     FOREIGN KEY (server_id) REFERENCES remote_servers(id) ON DELETE CASCADE,
     FOREIGN KEY (group_id) REFERENCES server_groups(id) ON DELETE CASCADE,
     UNIQUE(server_id, group_id)

@@ -1,6 +1,6 @@
 use sqlx::SqlitePool;
 use crate::deployment::model::*;
-use chrono::Utc;
+use chrono::Local;
 
 #[derive(Clone)]
 pub struct DeploymentService {
@@ -32,7 +32,8 @@ impl DeploymentService {
     }
 
     pub async fn create_plan(&self, req: CreatePlanRequest) -> Result<ExecutionPlan, sqlx::Error> {
-        let now = Utc::now().to_rfc3339();
+        let now = Local::now().to_rfc3339();
+        
         let steps_json = serde_json::to_string(&req.steps).unwrap_or_default();
 
         let result = sqlx::query(
@@ -60,7 +61,7 @@ impl DeploymentService {
     }
 
     pub async fn update_plan(&self, id: i64, req: UpdatePlanRequest) -> Result<u64, sqlx::Error> {
-        let now = Utc::now().to_rfc3339();
+        let now = Local::now().to_rfc3339();
         let steps_json = req.steps.as_ref().map(|s| serde_json::to_string(s).unwrap_or_default());
 
         let result = sqlx::query(
@@ -113,7 +114,7 @@ impl DeploymentService {
     }
 
     pub async fn create_task(&self, req: CreateTaskRequest) -> Result<DeploymentTask, sqlx::Error> {
-        let now = Utc::now().to_rfc3339();
+        let now = Local::now().to_rfc3339();
         let server_groups_json = serde_json::to_string(&req.server_groups).unwrap_or_default();
 
         let result = sqlx::query(
@@ -189,7 +190,7 @@ impl DeploymentService {
 
     /// 创建执行历史记录(包含日志)
     pub async fn create_history(&self, req: CreateHistoryRequest) -> Result<ExecutionHistoryDetail, sqlx::Error> {
-        let now = Utc::now().to_rfc3339();
+        let now = Local::now().to_rfc3339();
         let server_groups_json = serde_json::to_string(&req.server_groups).unwrap_or_default();
 
         // 开始事务
