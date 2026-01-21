@@ -4,7 +4,11 @@ use axum::extract::ws::{Message, WebSocket};
 use futures_util::{SinkExt, StreamExt};
 use russh::client;
 use serde::{Deserialize, Serialize};
+use std::convert::Infallible;
 
+use crate::util::buffer_pool::BufferManager;
+use bytes::BytesMut;
+use deadpool::managed::{Manager, Object, PoolError};
 use std::time::Duration;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tower_sessions::Session;
@@ -115,9 +119,9 @@ pub struct FileAttrInfo {
 /// - 局域网/高速网络: 使用 CHUNK_SIZE_LARGE (10MB)
 /// - 公网/一般网络: 使用 CHUNK_SIZE_MEDIUM (2MB)
 /// - 慢速/不稳定网络: 使用 CHUNK_SIZE_SMALL (512KB)
-const CHUNK_SIZE_SMALL: usize = 512 * 1024;       // 512KB
-const CHUNK_SIZE_MEDIUM: usize = 2 * 1024 * 1024;  // 2MB
-const CHUNK_SIZE_LARGE: usize = 10 * 1024 * 1024;  // 10MB
+const CHUNK_SIZE_SMALL: usize = 512 * 1024; // 512KB
+const CHUNK_SIZE_MEDIUM: usize = 2 * 1024 * 1024; // 2MB
+const CHUNK_SIZE_LARGE: usize = 10 * 1024 * 1024; // 10MB
 
 /// 默认使用 10MB,适合局域网高速传输
 const CHUNK_SIZE: usize = CHUNK_SIZE_LARGE;
@@ -299,9 +303,16 @@ pub async fn handle_sftp_socket(mut socket: WebSocket, session: Session, state: 
     // 5. 上传状态管理
     let mut upload_state: Option<UploadState> = None;
     let mut check_handle = tokio::time::interval(Duration::from_secs(30));
-
+    let mut buffer = match state.buffer_pool.get().await {
+        Ok(b) => b,
+        Err(e) => {
+            let _ = send_sftp_error(&mut socket, format!("获取buffer失败: {}", e)).await;
+            return;
+        }
+    };
     // 6. 处理命令循环
     loop {
+        buffer.clear();
         tokio::select! {
             // 定期检查上传超时
             _ = check_handle.tick() => {
@@ -335,6 +346,7 @@ pub async fn handle_sftp_socket(mut socket: WebSocket, session: Session, state: 
                         &mut socket,
                         cmd,
                         &mut upload_state,
+                        &mut buffer
                     )
                     .await
                     {
@@ -355,7 +367,7 @@ pub async fn handle_sftp_socket(mut socket: WebSocket, session: Session, state: 
                             Ok(_) => {
                                 state.received += data.len() as u64;
                                 state.update_activity();
-                                
+
                                 // 发送上传进度
                                 let _ = socket.send(Message::Text(
                                     serde_json::to_string(&SftpServerMessage::UploadProgress {
@@ -411,6 +423,7 @@ async fn handle_sftp_command(
     socket: &mut WebSocket,
     cmd: SftpClientCommand,
     upload_state: &mut Option<UploadState>,
+    buffer: &mut Object<BufferManager>,
 ) -> anyhow::Result<()> {
     match cmd {
         SftpClientCommand::ListDir { path } => {
@@ -435,7 +448,10 @@ async fn handle_sftp_command(
             }
 
             // 获取绝对路径
-            let absolute_path = sftp_conn.sftp.canonicalize(&path).await
+            let absolute_path = sftp_conn
+                .sftp
+                .canonicalize(&path)
+                .await
                 .unwrap_or_else(|_| path.clone().into());
 
             socket
@@ -468,23 +484,23 @@ async fn handle_sftp_command(
 
             // 分块读取并发送 (使用 1MB 缓冲区)
             let mut chunk_id = 0u64;
-            let mut buffer = vec![0u8; CHUNK_SIZE];
             let mut remaining = total_size;
 
             loop {
+                buffer.clear();
                 let n = if remaining >= CHUNK_SIZE as u64 {
                     // 尝试读满整个 buffer
-                    match file.read_exact(&mut buffer).await {
+                    match file.read_exact(buffer.as_mut()).await {
                         Ok(_) => CHUNK_SIZE,
                         Err(e) if e.kind() == std::io::ErrorKind::UnexpectedEof => {
                             // 文件提前结束,读取剩余部分
-                            file.read(&mut buffer).await?
+                            file.read(buffer.as_mut()).await?
                         }
                         Err(e) => return Err(e.into()),
                     }
                 } else {
                     // 最后一块,只读取剩余大小
-                    file.read(&mut buffer[..remaining as usize]).await?
+                    file.read(buffer.as_mut()).await?
                 };
 
                 if n == 0 {
@@ -503,7 +519,6 @@ async fn handle_sftp_command(
                         .into(),
                     ))
                     .await?;
-
                 // 发送块数据(二进制)
                 socket
                     .send(Message::Binary(buffer[..n].to_vec().into()))
@@ -520,10 +535,6 @@ async fn handle_sftp_command(
                 .await?;
 
             debug!("文件下载完成: {} ({} 块)", path, chunk_id);
-
-            // 显式释放资源
-            drop(buffer);
-            drop(file);
         }
 
         SftpClientCommand::UploadFileStart { path, total_size } => {
@@ -569,7 +580,7 @@ async fn handle_sftp_command(
                     serde_json::to_string(&SftpServerMessage::Success {
                         message: "准备接收文件".to_string(),
                     })?
-                                .into(),
+                    .into(),
                 ))
                 .await?;
         }
@@ -746,12 +757,12 @@ async fn handle_sftp_command(
                 .map_err(|e| anyhow!("创建远程文件失败: {} (目标: {})", e, final_remote_path))?;
 
             // 流式传输
-            let mut buffer = vec![0u8; CHUNK_SIZE];
             let mut received = 0u64;
 
             loop {
+                buffer.clear();
                 let n = local_file
-                    .read(&mut buffer)
+                    .read(buffer.as_mut())
                     .await
                     .map_err(|e| anyhow!("读取本地文件失败: {}", e))?;
                 if n == 0 {
@@ -791,11 +802,6 @@ async fn handle_sftp_command(
                     .into(),
                 ))
                 .await?;
-
-            // 显式释放资源
-            drop(buffer);
-            drop(local_file);
-            drop(remote_file);
         }
         SftpClientCommand::ReadFileContent { path } => {
             debug!("读取文件内容: {}", path);
@@ -837,20 +843,20 @@ async fn handle_sftp_command(
 
         SftpClientCommand::SetPermissions { path, permissions } => {
             debug!("修改文件权限: {} -> {:o}", path, permissions);
-            
+
             // 获取当前文件的完整属性
             let current_attrs = sftp_conn.sftp.metadata(&path).await?;
             let current_perms = current_attrs.permissions.unwrap_or(0);
-            
+
             // 保留文件类型位 (高位),只修改权限位 (低9位)
             // 文件类型位在高位 (0o170000),权限位在低9位 (0o777)
             let new_perms = (current_perms & 0o170000) | (permissions & 0o777);
-            
+
             debug!("当前权限: {:o}, 新权限: {:o}", current_perms, new_perms);
-            
+
             // 使用当前的 metadata,只修改权限字段
             use russh_sftp::protocol::FileAttributes;
-            
+
             // 从当前属性创建新的 FileAttributes,保留所有原有属性
             let attrs = FileAttributes {
                 size: current_attrs.size,
@@ -862,7 +868,7 @@ async fn handle_sftp_command(
                 atime: current_attrs.atime,
                 mtime: current_attrs.mtime,
             };
-            
+
             // 使用 set_metadata 方法
             sftp_conn.sftp.set_metadata(&path, attrs.into()).await?;
 

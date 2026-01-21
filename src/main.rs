@@ -1,19 +1,23 @@
+mod deployment;
 mod logger;
 mod server;
 mod sftp;
 mod ssh;
 mod user;
-mod deployment;
+mod util;
 
 use crate::server::{
     batch_delete_groups, batch_delete_servers, create_group, create_server, delete_group,
-    delete_server, get_server, list_groups, list_servers, update_group, update_server, ServerService,
+    delete_server, get_server, list_groups, list_servers, update_group, update_server,
+    ServerService,
 };
 use crate::sftp::handler::handle_sftp_socket;
 use crate::ssh::handler::handle_socket;
 use crate::user::{
     auth_middleware, change_password, get_current_user, login, logout, register, UserService,
 };
+use crate::util::buffer_pool::BufferManager;
+use crate::util::BufferPool;
 use anyhow::{anyhow, Result};
 use axum::body::Body;
 use axum::extract::WebSocketUpgrade;
@@ -21,6 +25,7 @@ use axum::http::{header, HeaderValue, Method, StatusCode, Uri};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{delete, get, post, put};
 use axum::{middleware, Router};
+use deadpool::managed::{Object, Pool};
 use rust_embed::RustEmbed;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 #[cfg(debug_assertions)]
@@ -32,9 +37,10 @@ use tracing::{debug, info, warn};
 /// 应用共享状态
 #[derive(Clone)]
 pub struct AppState {
-    pub user_service: UserService,
-    pub server_service: ServerService,
-    pub deployment_service: deployment::service::DeploymentService,
+    pub(crate) user_service: UserService,
+    pub(crate) server_service: ServerService,
+    pub(crate) deployment_service: deployment::service::DeploymentService,
+    pub(crate) buffer_pool: Pool<BufferManager, Object<BufferManager>>,
 }
 
 /// 嵌入的静态资源
@@ -45,18 +51,14 @@ struct Assets;
 /// 静态文件处理器
 async fn static_handler(uri: Uri) -> Response<Body> {
     let path = uri.path().trim_start_matches('/');
-    
+
     // 空路径默认为 index.html
-    let path = if path.is_empty() {
-        "index.html"
-    } else {
-        path
-    };
+    let path = if path.is_empty() { "index.html" } else { path };
 
     match Assets::get(path) {
         Some(content) => {
             let mime = mime_guess::from_path(path).first_or_octet_stream();
-            
+
             Response::builder()
                 .status(StatusCode::OK)
                 .header(header::CONTENT_TYPE, mime.as_ref())
@@ -75,7 +77,7 @@ async fn static_handler(uri: Uri) -> Response<Body> {
                         .unwrap();
                 }
             }
-            
+
             Response::builder()
                 .status(StatusCode::NOT_FOUND)
                 .body(Body::from("404 Not Found"))
@@ -119,22 +121,26 @@ async fn main() -> Result<()> {
     // 运行数据库迁移
     sqlx::migrate!("./migrations").run(&pool).await?;
 
+    let buffer_pool = BufferPool::builder(BufferManager::new(5 * 1024 * 1024))
+        .max_size(10)
+        .build()?;
     // 创建共享应用状态
     let app_state = AppState {
         user_service: UserService::new(pool.clone()),
         server_service: ServerService::new(pool.clone()),
         deployment_service: deployment::service::DeploymentService::new(pool.clone()),
+        buffer_pool,
     };
 
     // 配置 session 存储(使用 SQLite 存储以支持持久化)
     let session_store = SqliteStore::new(pool.clone());
     session_store.migrate().await?;
-    
+
     let session_layer = SessionManagerLayer::new(session_store)
         .with_secure(false) // 开发环境设置为 false,生产环境应该为 true
         .with_same_site(tower_sessions::cookie::SameSite::Lax) // 允许跨站点请求携带 cookie
         .with_expiry(tower_sessions::Expiry::OnInactivity(
-            time::Duration::days(30) // 30 天不活动后过期
+            time::Duration::days(30), // 30 天不活动后过期
         ));
 
     // 公开路由(不需要认证)
@@ -210,10 +216,7 @@ async fn main() -> Result<()> {
                 header::COOKIE,
             ])
             // 暴露的响应头
-            .expose_headers([
-                header::SET_COOKIE,
-                header::CONTENT_TYPE,
-            ]),
+            .expose_headers([header::SET_COOKIE, header::CONTENT_TYPE]),
     );
 
     // 获取起始端口(从环境变量 PORT 获取,或默认为 3000)

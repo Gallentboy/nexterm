@@ -3,6 +3,7 @@ use crate::ssh::{ClientCommand, ServerMessage, SshConnectParams, SshMode};
 use anyhow::anyhow;
 use axum::body::Bytes;
 use axum::extract::ws::{Message, WebSocket};
+use std::io::Read;
 
 use futures_util::{SinkExt, StreamExt};
 use russh::client::Msg;
@@ -46,7 +47,6 @@ impl Drop for SshSessionGuard {
         }
     }
 }
-
 
 //noinspection ALL
 /// WebSocket 连接处理
@@ -143,12 +143,12 @@ pub async fn handle_socket(mut socket: WebSocket, session: Session, state: crate
     // 使用 Guard 确保连接总是被关闭
     let session_guard = SshSessionGuard::new(ssh_session.session);
     let session_handle = session_guard.get();
-    
+
     let mut channel = match session_handle.channel_open_session().await {
         Ok(c) => c,
         Err(e) => {
             let _ = send_error(&mut socket, format!("打开通道失败: {}", e)).await;
-            return;  // Guard 会自动清理
+            return; // Guard 会自动清理
         }
     };
 
@@ -222,7 +222,7 @@ pub async fn handle_socket(mut socket: WebSocket, session: Session, state: crate
                         }
                     }
                     Some(Ok(Message::Binary(data))) => {
-                        if channel.data(&data.to_vec()[..]).await.is_err() {
+                        if channel.data(data.as_ref()).await.is_err() {
                             break;
                         }
                     }
@@ -275,7 +275,7 @@ pub async fn handle_socket(mut socket: WebSocket, session: Session, state: crate
             }
         }
     }
-    
+
     info!("SSH 会话结束");
 }
 
@@ -325,7 +325,7 @@ async fn handle_exec_mode(
     };
     let cmd = build_exec_command(params);
     debug!("执行命令: {} (超时: {}秒)", cmd, params.timeout_secs);
-    
+
     // 2. 执行命令
     if let Err(e) = channel.exec(true, cmd.as_bytes()).await {
         let _ = send_error(&mut socket, format!("执行命令失败: {}", e)).await;
@@ -337,7 +337,7 @@ async fn handle_exec_mode(
     let mut code = None;
     let timeout_duration = Duration::from_secs(params.timeout_secs);
     let start_time = std::time::Instant::now();
-    
+
     loop {
         // 检查是否超时
         if start_time.elapsed() >= timeout_duration {
@@ -347,7 +347,7 @@ async fn handle_exec_mode(
             code = Some(124); // 超时退出码
             break;
         }
-        
+
         // 使用较短的超时来检查消息，以便能及时检测总超时
         match timeout(Duration::from_millis(100), channel.wait()).await {
             Ok(Some(ChannelMsg::Data { ref data })) => {
@@ -383,7 +383,7 @@ async fn handle_exec_mode(
             _ => {}
         }
     }
-    
+
     // 4. 发送完成消息
     let result = serde_json::json!({
         "type": "exec_complete",
