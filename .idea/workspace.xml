@@ -12,12 +12,7 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="c700b9d1-2a97-4d3d-88b6-9df02b6e1fe0" name="Changes" comment="init commit">
-      <change afterPath="$PROJECT_DIR$/src/util/buffer_pool.rs" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/src/util/mod.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/Cargo.toml" beforeDir="false" afterPath="$PROJECT_DIR$/Cargo.toml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/main.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/main.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/sftp/handler.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/sftp/handler.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/ssh/handler.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/ssh/handler.rs" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -25,7 +20,7 @@
     <option name="LAST_RESOLUTION" value="IGNORE" />
   </component>
   <component name="EmbeddingIndexingInfo">
-    <option name="cachedIndexableFilesCount" value="4442" />
+    <option name="cachedIndexableFilesCount" value="4444" />
   </component>
   <component name="ExecutionTargetManager" SELECTED_TARGET="RsBuildProfile:dev" />
   <component name="FileTemplateManagerImpl">
@@ -139,6 +134,7 @@
       <workItem from="1768814872802" duration="361000" />
       <workItem from="1768878887052" duration="12000" />
       <workItem from="1768970525607" duration="3988000" />
+      <workItem from="1768975290113" duration="351000" />
     </task>
     <task id="LOCAL-00001" summary="init commit">
       <option name="closed" value="true" />

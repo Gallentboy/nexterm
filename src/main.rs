@@ -27,6 +27,7 @@ use axum::routing::{delete, get, post, put};
 use axum::{middleware, Router};
 use deadpool::managed::{Object, Pool};
 use rust_embed::RustEmbed;
+use std::time::Duration;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 #[cfg(debug_assertions)]
 use tower_http::cors::CorsLayer;
@@ -122,8 +123,19 @@ async fn main() -> Result<()> {
     sqlx::migrate!("./migrations").run(&pool).await?;
 
     let buffer_pool = BufferPool::builder(BufferManager::new(5 * 1024 * 1024))
-        .max_size(10)
+        .max_size(100)
         .build()?;
+
+    let interval = Duration::from_secs(30);
+    let max_age = Duration::from_secs(60);
+    let copy_pool = buffer_pool.clone();
+    tokio::spawn(async move {
+        loop {
+            tokio::time::sleep(interval).await;
+            copy_pool.retain(|_, metrics| metrics.last_used() < max_age);
+        }
+    });
+
     // 创建共享应用状态
     let app_state = AppState {
         user_service: UserService::new(pool.clone()),
