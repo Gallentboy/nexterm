@@ -11,7 +11,9 @@
     </cargoProject>
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="c700b9d1-2a97-4d3d-88b6-9df02b6e1fe0" name="Changes" comment="init commit" />
+    <list default="true" id="c700b9d1-2a97-4d3d-88b6-9df02b6e1fe0" name="Changes" comment="init commit">
+      <change beforePath="$PROJECT_DIR$/fronted/src/contexts/sftp-context.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/fronted/src/contexts/sftp-context.tsx" afterDir="false" />
+    </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
     <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
@@ -135,6 +137,7 @@
       <workItem from="1768975290113" duration="582000" />
       <workItem from="1768981025498" duration="301000" />
       <workItem from="1768982205048" duration="1096000" />
+      <workItem from="1768985747472" duration="3043000" />
     </task>
     <task id="LOCAL-00001" summary="init commit">
       <option name="closed" value="true" />

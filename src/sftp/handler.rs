@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use std::convert::Infallible;
 
 use crate::util::buffer_pool::BufferManager;
-use bytes::BytesMut;
+use bytes::{Bytes, BytesMut};
 use deadpool::managed::{Manager, Object, PoolError};
 use std::time::Duration;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -312,7 +312,6 @@ pub async fn handle_sftp_socket(mut socket: WebSocket, session: Session, state: 
     };
     // 6. 处理命令循环
     loop {
-        buffer.clear();
         tokio::select! {
             // 定期检查上传超时
             _ = check_handle.tick() => {
@@ -482,25 +481,25 @@ async fn handle_sftp_command(
             // 打开文件
             let mut file = sftp_conn.sftp.open(&path).await?;
 
-            // 分块读取并发送 (使用 1MB 缓冲区)
+            // 分块读取并发送
             let mut chunk_id = 0u64;
             let mut remaining = total_size;
+            let chunk_size = buffer.len();
 
             loop {
-                buffer.clear();
-                let n = if remaining >= CHUNK_SIZE as u64 {
+                let n = if remaining >= chunk_size as u64 {
                     // 尝试读满整个 buffer
-                    match file.read_exact(buffer.as_mut()).await {
-                        Ok(_) => CHUNK_SIZE,
+                    match file.read_exact(&mut buffer[..]).await {
+                        Ok(_) => chunk_size,
                         Err(e) if e.kind() == std::io::ErrorKind::UnexpectedEof => {
                             // 文件提前结束,读取剩余部分
-                            file.read(buffer.as_mut()).await?
+                            file.read(&mut buffer[..]).await?
                         }
                         Err(e) => return Err(e.into()),
                     }
                 } else {
                     // 最后一块,只读取剩余大小
-                    file.read(buffer.as_mut()).await?
+                    file.read(&mut buffer[..]).await?
                 };
 
                 if n == 0 {
@@ -519,10 +518,15 @@ async fn handle_sftp_command(
                         .into(),
                     ))
                     .await?;
-                // 发送块数据(二进制)
+                
+                // 零拷贝发送:split_to 分离出前 n 字节,freeze 转为 Bytes
+                let chunk = buffer.split_to(n).freeze();
                 socket
-                    .send(Message::Binary(buffer[..n].to_vec().into()))
+                    .send(Message::Binary(chunk))
                     .await?;
+                
+                // 恢复 buffer 长度以便下次读取
+                buffer.resize(chunk_size, 0);
 
                 chunk_id += 1;
             }
@@ -706,7 +710,7 @@ async fn handle_sftp_command(
             local_path,
             remote_path,
         } => {
-            info!("从本地上传文件: {} -> {}", local_path, remote_path);
+            debug!("从本地上传文件: {} -> {}", local_path, remote_path);
 
             // 检查本地文件
             let metadata = tokio::fs::metadata(&local_path)
@@ -760,15 +764,13 @@ async fn handle_sftp_command(
             let mut received = 0u64;
 
             loop {
-                buffer.clear();
                 let n = local_file
-                    .read(buffer.as_mut())
+                    .read(&mut buffer[..])
                     .await
                     .map_err(|e| anyhow!("读取本地文件失败: {}", e))?;
                 if n == 0 {
                     break;
                 }
-
                 remote_file
                     .write_all(&buffer[..n])
                     .await
@@ -789,7 +791,7 @@ async fn handle_sftp_command(
             }
 
             remote_file.sync_all().await?;
-            info!(
+            debug!(
                 "本地上传完成: {} -> {} ({} bytes)",
                 local_path, remote_path, received
             );

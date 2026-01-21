@@ -466,7 +466,7 @@ export function SFTPProvider({ children }: { children: React.ReactNode }) {
 
             updateSession(id, { uploadingFileName: file.name, uploadProgress: 0, isUploading: true });
 
-            const CHUNK_SIZE = 1024 * 1024; // 1MB
+            const CHUNK_SIZE = 1024 * 1024 * 5; // 5MB
             const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
 
             // 监听上传完成或错误

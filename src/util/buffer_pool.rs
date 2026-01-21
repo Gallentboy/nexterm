@@ -1,5 +1,7 @@
-use deadpool::managed;
 use bytes::BytesMut;
+use deadpool::managed;
+use log::info;
+
 #[derive(Clone)]
 pub(crate) struct BufferManager {
     size: usize,
@@ -30,12 +32,16 @@ impl managed::Manager for BufferManager {
 
     #[inline(always)]
     async fn create(&self) -> Result<Self::Type, Self::Error> {
-        Ok(BytesMut::with_capacity(self.size))
+        Ok(BytesMut::zeroed(self.size))
     }
 
     #[inline(always)]
-    async fn recycle(&self, obj: &mut Self::Type, _metrics: &managed::Metrics) -> managed::RecycleResult<Self::Error> {
-        obj.clear(); // 回收时清空数据
+    async fn recycle(
+        &self,
+        obj: &mut Self::Type,
+        _metrics: &managed::Metrics,
+    ) -> managed::RecycleResult<Self::Error> {
+        obj.resize(self.size, 0); // 清空数据
         Ok(())
     }
 }
