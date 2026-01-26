@@ -324,6 +324,11 @@ export function SSHProvider({ children }: { children: React.ReactNode }) {
         term.loadAddon(unicode11Addon);
         term.unicode.activeVersion = '11';
 
+        // 禁用蜂鸣：忽略后端心跳发送的 BEL 字符
+        term.onBell(() => {
+            // 静默处理，不做任何事
+        });
+
         const wsUrl = getWebSocketUrl('/ssh');
 
         const socket = new WebSocket(wsUrl);
