@@ -42,9 +42,18 @@ function App() {
     document.title = t('common.appTitle');
   }, [i18n.language, t]);
 
-  // 禁用右键菜单
+  // 禁用右键菜单，但允许终端区域使用右键（用于粘贴）
   useEffect(() => {
     const handleContextMenu = (e: MouseEvent) => {
+      // 检查点击目标是否在终端区域内
+      const target = e.target as HTMLElement;
+      const isInTerminal = target.closest('.xterm') || target.closest('.xterm-screen');
+
+      // 如果在终端区域内，允许右键菜单（用于粘贴等操作）
+      if (isInTerminal) {
+        return true;
+      }
+
       e.preventDefault();
       return false;
     };
