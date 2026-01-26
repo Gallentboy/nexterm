@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Terminal as TerminalIcon, Play, Settings, Maximize2, Minimize2, Monitor, X, Minus, Plus, Trash2, Search, ChevronUp, ChevronDown } from 'lucide-react';
 import { toast } from 'sonner';
@@ -17,6 +17,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { useSSH, type SSHSession } from '@/contexts/ssh-context';
 import { cn } from '@/lib/utils';
 import '@xterm/xterm/css/xterm.css';
+import { TerminalContextMenu } from '@/components/terminal-context-menu';
 
 export default function SSHPage() {
     const { t } = useTranslation();
@@ -29,6 +30,19 @@ export default function SSHPage() {
     const [searchQuery, setSearchQuery] = useState('');
     const terminalRef = useRef<HTMLDivElement>(null);
     const searchInputRef = useRef<HTMLInputElement>(null);
+
+    // 右键菜单回调
+    const getSelectedText = useCallback(() => {
+        const session = activeSessionId ? sessions[activeSessionId] : null;
+        return session?.terminal?.getSelection() || '';
+    }, [activeSessionId, sessions]);
+
+    const handlePaste = useCallback((text: string) => {
+        const session = activeSessionId ? sessions[activeSessionId] : null;
+        if (session?.socket?.readyState === WebSocket.OPEN) {
+            session.socket.send(JSON.stringify({ type: 'Input', data: text }));
+        }
+    }, [activeSessionId, sessions]);
 
     // 加载服务器列表
     useEffect(() => {
@@ -366,6 +380,14 @@ export default function SSHPage() {
                         className="absolute inset-0 p-4"
                         style={{ background: 'transparent' }} // 终端容器背景由 xterm 内部决定
                     />
+                    {/* 终端右键菜单 */}
+                    {activeSessionId && (
+                        <TerminalContextMenu
+                            containerRef={terminalRef}
+                            getSelectedText={getSelectedText}
+                            onPaste={handlePaste}
+                        />
+                    )}
                     {!activeSessionId && (
                         <div className="h-full w-full flex flex-col items-center justify-center text-muted-foreground gap-4 bg-muted/5">
                             <div className="h-20 w-20 rounded-full bg-primary/5 flex items-center justify-center">

@@ -333,20 +333,6 @@ export function SSHProvider({ children }: { children: React.ReactNode }) {
         container.style.width = '100%';
         container.style.height = '100%';
 
-        // 添加右键粘贴功能
-        container.addEventListener('contextmenu', async (e) => {
-            e.preventDefault();
-            try {
-                const text = await navigator.clipboard.readText();
-                if (text && socket.readyState === WebSocket.OPEN) {
-                    socket.send(JSON.stringify({ type: 'Input', data: text }));
-                }
-            } catch (err) {
-                // 剪贴板访问失败时静默处理
-                debug.error('[SSH] Failed to read clipboard:', err);
-            }
-        });
-
         term.open(container);
 
         const session: SSHSession = {
