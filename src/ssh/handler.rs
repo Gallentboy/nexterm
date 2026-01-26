@@ -187,7 +187,15 @@ pub async fn handle_socket(mut socket: WebSocket, session: Session, state: crate
     }
     debug!("SSH 连接成功");
 
-    // 6. 通知客户端
+    // 6. 禁用服务端 TMOUT 超时
+    // 前导空格：不记录到 shell history
+    // export TMOUT=0：禁用超时
+    // 2>/dev/null：静默错误（readonly TMOUT 时）
+    // clear：清屏，用户无感知
+    let disable_tmout_cmd = " export TMOUT=0 2>/dev/null || unset TMOUT 2>/dev/null; clear\n";
+    let _ = channel.data(&disable_tmout_cmd.as_bytes()[..]).await;
+
+    // 7. 通知客户端
     let _ = socket
         .send(Message::Text(
             serde_json::to_string(&ServerMessage::Connected)
@@ -196,12 +204,8 @@ pub async fn handle_socket(mut socket: WebSocket, session: Session, state: crate
         ))
         .await;
 
-    // 7. 双向数据转发
+    // 8. 双向数据转发
     let (mut ws_tx, mut ws_rx) = socket.split();
-    
-    // Shell 心跳机制：记录用户最后活动时间，防止 TMOUT 超时
-    let mut last_user_activity = std::time::Instant::now();
-    let mut keepalive_interval = tokio::time::interval(Duration::from_secs(30));
     
     loop {
         tokio::select! {
@@ -209,9 +213,6 @@ pub async fn handle_socket(mut socket: WebSocket, session: Session, state: crate
             ws_msg = ws_rx.next() => {
                 match ws_msg {
                     Some(Ok(Message::Text(text))) => {
-                        // 用户有输入，更新活动时间
-                        last_user_activity = std::time::Instant::now();
-                        
                         if let Ok(cmd) = serde_json::from_str::<ClientCommand>(&text) {
                             match cmd {
                                 ClientCommand::Resize { cols, rows } => {
@@ -230,9 +231,6 @@ pub async fn handle_socket(mut socket: WebSocket, session: Session, state: crate
                         }
                     }
                     Some(Ok(Message::Binary(data))) => {
-                        // 用户有输入，更新活动时间
-                        last_user_activity = std::time::Instant::now();
-                        
                         if channel.data(data.as_ref()).await.is_err() {
                             break;
                         }
@@ -282,17 +280,6 @@ pub async fn handle_socket(mut socket: WebSocket, session: Session, state: crate
                         // 超时，继续循环处理 WebSocket
                     }
                     _ => {}
-                }
-            }
-            
-            // Shell 心跳：防止服务端 TMOUT 超时断开
-            _ = keepalive_interval.tick() => {
-                // 只在用户空闲超过 50 秒时发送心跳
-                if last_user_activity.elapsed() > Duration::from_secs(50) {
-                    // 发送 DSR (Device Status Report) 请求
-                    // 终端会回复 "\x1b[0n"，不影响任何显示和用户输入
-                    let _ = channel.data(&b"\x1b[5n"[..]).await;
-                    debug!("发送 Shell 心跳 (DSR)");
                 }
             }
         }
