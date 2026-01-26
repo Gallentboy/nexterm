@@ -278,10 +278,10 @@ pub async fn handle_socket(mut socket: WebSocket, session: Session, state: crate
                 }
             }
             
-            // 心跳：发送 NUL 字符保持 PTY 活跃
+            // 心跳：发送 BEL 字符保持 PTY 活跃
             _ = keepalive_interval.tick() => {
-                // NUL 字符对终端无影响，但能保持 SSH 通道活跃
-                let _ = channel.data(&b"\x00"[..]).await;
+                // BEL (\x07) 字符会触发终端蜂鸣，但现代终端通常静音
+                let _ = channel.data(&b"\x07"[..]).await;
             }
         }
     }
