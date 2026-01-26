@@ -187,15 +187,7 @@ pub async fn handle_socket(mut socket: WebSocket, session: Session, state: crate
     }
     debug!("SSH 连接成功");
 
-    // 6. 禁用服务端 TMOUT 超时
-    // 前导空格：不记录到 shell history
-    // export TMOUT=0：禁用超时
-    // 2>/dev/null：静默错误（readonly TMOUT 时）
-    // clear：清屏，用户无感知
-    let disable_tmout_cmd = " export TMOUT=0 2>/dev/null || unset TMOUT 2>/dev/null; clear\n";
-    let _ = channel.data(&disable_tmout_cmd.as_bytes()[..]).await;
-
-    // 7. 通知客户端
+    // 6. 通知客户端
     let _ = socket
         .send(Message::Text(
             serde_json::to_string(&ServerMessage::Connected)
@@ -204,8 +196,11 @@ pub async fn handle_socket(mut socket: WebSocket, session: Session, state: crate
         ))
         .await;
 
-    // 8. 双向数据转发
+    // 7. 双向数据转发
     let (mut ws_tx, mut ws_rx) = socket.split();
+    
+    // 心跳机制：定期发送 NUL 字符保持连接活跃
+    let mut keepalive_interval = tokio::time::interval(Duration::from_secs(30));
     
     loop {
         tokio::select! {
@@ -281,6 +276,12 @@ pub async fn handle_socket(mut socket: WebSocket, session: Session, state: crate
                     }
                     _ => {}
                 }
+            }
+            
+            // 心跳：发送 NUL 字符保持 PTY 活跃
+            _ = keepalive_interval.tick() => {
+                // NUL 字符对终端无影响，但能保持 SSH 通道活跃
+                let _ = channel.data(&b"\x00"[..]).await;
             }
         }
     }
