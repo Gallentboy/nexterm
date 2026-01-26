@@ -195,26 +195,45 @@ export function SFTPProvider({ children }: { children: React.ReactNode }) {
                     case 'download_start': {
                         const fileName = sessionsRef.current[id]?.downloadingFileName || 'download';
 
-                        // 设置下载状态为 true
-                        updateSession(id, { isDownloading: true });
+                        // 检查是否有回调(预览模式)
+                        const callbacks = downloadCallbacks.current.get(id);
+                        const isPreview = callbacks && callbacks.length > 0;
 
-                        // 使用 StreamSaver 创建可写流
-                        const fileStream = streamSaver.createWriteStream(fileName, {
-                            size: msg.total_size, // 提供文件大小以显示准确的进度
-                        });
+                        // 只有在非预览模式下才设置下载状态和启动 StreamSaver
+                        if (!isPreview) {
+                            // 设置下载状态为 true
+                            updateSession(id, { isDownloading: true });
 
-                        const streamWriter = fileStream.getWriter();
+                            // 使用 StreamSaver 创建可写流
+                            const fileStream = streamSaver.createWriteStream(fileName, {
+                                size: msg.total_size, // 提供文件大小以显示准确的进度
+                            });
 
-                        downloadState = {
-                            fileName,
-                            totalSize: msg.total_size,
-                            chunks: [], // 仍保留用于 getFileBlob
-                            receivedSize: 0,
-                            expectedChunks: 0,
-                            streamWriter
-                        };
+                            const streamWriter = fileStream.getWriter();
 
-                        debug.log('[SFTP] StreamSaver download started:', fileName, msg.total_size);
+                            downloadState = {
+                                fileName,
+                                totalSize: msg.total_size,
+                                chunks: [], // 仍保留用于 getFileBlob
+                                receivedSize: 0,
+                                expectedChunks: 0,
+                                streamWriter
+                            };
+
+                            debug.log('[SFTP] StreamSaver download started:', fileName, msg.total_size);
+                        } else {
+                            // 预览模式:只收集数据,不启动 StreamSaver
+                            downloadState = {
+                                fileName,
+                                totalSize: msg.total_size,
+                                chunks: [],
+                                receivedSize: 0,
+                                expectedChunks: 0,
+                                streamWriter: undefined // 预览模式不需要 streamWriter
+                            };
+
+                            debug.log('[SFTP] Preview mode download started:', fileName, msg.total_size);
+                        }
                         break;
                     }
                     case 'download_chunk':

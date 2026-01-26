@@ -11,7 +11,7 @@ export default defineConfig({
     tailwindcss(),
     VitePWA({
       registerType: 'autoUpdate',
-      includeAssets: ['icon.svg', 'vite.svg'],
+      includeAssets: ['icon.svg', 'vite.svg', 'pdfjs-dist/**/*'],
       manifest: {
         // 默认使用中文,浏览器会根据用户语言自动选择
         // For English: name: 'Nexterm - Next Generation Terminal'
@@ -144,8 +144,17 @@ export default defineConfig({
     rollupOptions: {
       output: {
         manualChunks(id) {
+          // Monaco Editor 核心文件
           if (id.includes('monaco-editor')) {
             return 'monaco-editor';
+          }
+          // Monaco Editor 语言支持文件
+          if (id.includes('monaco-editor') && id.includes('/esm/vs/language/')) {
+            return 'monaco-languages';
+          }
+          // Monaco Editor worker 文件
+          if (id.includes('monaco-editor') && id.includes('/esm/vs/editor/')) {
+            return 'monaco-editor-core';
           }
           if (id.includes('pdfjs-dist') || id.includes('pdf-viewer')) {
             return 'pdf-viewer';
@@ -155,6 +164,22 @@ export default defineConfig({
           }
         }
       }
-    }
+    },
+    // 确保 worker 文件被正确处理
+    assetsInlineLimit: 0,
+  },
+  // 优化依赖预构建,包含 Monaco Editor
+  optimizeDeps: {
+    include: [
+      'monaco-editor',
+      '@monaco-editor/react',
+      'monaco-vim'
+    ],
+    exclude: []
+  },
+  // Worker 配置
+  worker: {
+    format: 'es',
+    plugins: () => []
   }
 })

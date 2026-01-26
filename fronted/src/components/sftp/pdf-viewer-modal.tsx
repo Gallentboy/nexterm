@@ -122,7 +122,7 @@ export function PdfViewerModal({ open, onOpenChange, sessionId, path, fileName }
                             <p className="text-sm font-medium text-muted-foreground animate-pulse">{t('common.loading')}</p>
                         </div>
                     ) : fileUrl && (
-                        <Worker workerUrl="https://unpkg.com/pdfjs-dist@3.11.174/build/pdf.worker.min.js">
+                        <Worker workerUrl="/pdfjs-dist/build/pdf.worker.min.js">
                             <div className="h-full w-full">
                                 <Viewer
                                     fileUrl={fileUrl}
