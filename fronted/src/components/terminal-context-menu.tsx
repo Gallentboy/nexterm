@@ -8,6 +8,8 @@ interface TerminalContextMenuProps {
     getSelectedText: () => string;
     /** 粘贴回调 */
     onPaste: (text: string) => void;
+    /** 恢复终端焦点 */
+    onFocus?: () => void;
     /** 终端容器的 ref */
     containerRef: React.RefObject<HTMLDivElement | null>;
 }
@@ -23,7 +25,7 @@ interface MenuPosition {
  * @author zhangyue
  * @date 2026-01-26
  */
-export function TerminalContextMenu({ getSelectedText, onPaste, containerRef }: TerminalContextMenuProps) {
+export function TerminalContextMenu({ getSelectedText, onPaste, onFocus, containerRef }: TerminalContextMenuProps) {
     const { t } = useTranslation();
     const [visible, setVisible] = useState(false);
     const [position, setPosition] = useState<MenuPosition>({ x: 0, y: 0 });
@@ -59,7 +61,8 @@ export function TerminalContextMenu({ getSelectedText, onPaste, containerRef }: 
             await navigator.clipboard.writeText(selectedText);
         }
         setVisible(false);
-    }, [getSelectedText]);
+        onFocus?.();
+    }, [getSelectedText, onFocus]);
 
     const handlePaste = useCallback(async () => {
         try {
@@ -71,7 +74,8 @@ export function TerminalContextMenu({ getSelectedText, onPaste, containerRef }: 
             console.error('Failed to read clipboard:', err);
         }
         setVisible(false);
-    }, [onPaste]);
+        onFocus?.();
+    }, [onPaste, onFocus]);
 
     useEffect(() => {
         const container = containerRef.current;

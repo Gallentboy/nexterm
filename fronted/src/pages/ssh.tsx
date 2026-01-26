@@ -44,6 +44,11 @@ export default function SSHPage() {
         }
     }, [activeSessionId, sessions]);
 
+    const handleTerminalFocus = useCallback(() => {
+        const session = activeSessionId ? sessions[activeSessionId] : null;
+        session?.terminal?.focus();
+    }, [activeSessionId, sessions]);
+
     // 加载服务器列表
     useEffect(() => {
         const loadServers = async () => {
@@ -386,6 +391,7 @@ export default function SSHPage() {
                             containerRef={terminalRef}
                             getSelectedText={getSelectedText}
                             onPaste={handlePaste}
+                            onFocus={handleTerminalFocus}
                         />
                     )}
                     {!activeSessionId && (
