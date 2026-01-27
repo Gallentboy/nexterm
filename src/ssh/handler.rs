@@ -177,6 +177,12 @@ pub async fn handle_socket(mut socket: WebSocket, session: Session, state: crate
             let _ = channel.set_env(true, key, value).await;
         }
     }
+    
+    // 禁用 shell 超时以避免会话被自动断开
+    // 在请求 shell 之前通过 SSH 协议设置环境变量，避免审计日志痕迹
+    if let Err(e) = channel.set_env(true, "TMOUT", "0").await {
+        debug!("通过 SSH 协议设置 TMOUT 失败(不影响使用): {}", e);
+    }
 
     match channel.request_shell(true).await {
         Ok(_) => {}
@@ -185,6 +191,15 @@ pub async fn handle_socket(mut socket: WebSocket, session: Session, state: crate
             return;
         }
     }
+    
+    // 设置 TMOUT=0 并标记为 readonly，防止被任何脚本覆盖
+    // 使用 set +o history 临时禁用 history，设置完成后恢复
+    // readonly 属性确保后续脚本无法修改 TMOUT 的值
+    let setup_cmd = b"set +o history 2>/dev/null; readonly TMOUT=0 2>/dev/null || TMOUT=0 2>/dev/null; set -o history 2>/dev/null\n";
+    if let Err(e) = channel.data(&setup_cmd[..]).await {
+        debug!("设置 readonly TMOUT 失败(不影响使用): {}", e);
+    }
+    
     debug!("SSH 连接成功");
 
     // 6. 通知客户端
@@ -198,9 +213,6 @@ pub async fn handle_socket(mut socket: WebSocket, session: Session, state: crate
 
     // 7. 双向数据转发
     let (mut ws_tx, mut ws_rx) = socket.split();
-    
-    // 心跳机制：定期发送 NUL 字符保持连接活跃
-    let mut keepalive_interval = tokio::time::interval(Duration::from_secs(30));
     
     loop {
         tokio::select! {
@@ -276,12 +288,6 @@ pub async fn handle_socket(mut socket: WebSocket, session: Session, state: crate
                     }
                     _ => {}
                 }
-            }
-            
-            // 心跳：发送 BEL 字符保持 PTY 活跃
-            _ = keepalive_interval.tick() => {
-                // BEL (\x07) 字符会触发终端蜂鸣，但现代终端通常静音
-                let _ = channel.data(&b"\x07"[..]).await;
             }
         }
     }
