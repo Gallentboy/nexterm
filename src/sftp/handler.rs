@@ -980,6 +980,7 @@ fn is_content_editable(name: &str, size: u64) -> bool {
         "exs",
         "erl",
         "fs",
+        "properties",
     ];
 
     let name_lower = name.to_lowercase();

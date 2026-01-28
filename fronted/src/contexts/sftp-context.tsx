@@ -195,9 +195,21 @@ export function SFTPProvider({ children }: { children: React.ReactNode }) {
                     case 'download_start': {
                         const fileName = sessionsRef.current[id]?.downloadingFileName || 'download';
 
+                        // 检查是否有真实下载意图
+                        const hasDownloadIntent = downloadIntents.current.has(id);
+
                         // 检查是否有回调(预览模式)
                         const callbacks = downloadCallbacks.current.get(id);
-                        const isPreview = callbacks && callbacks.length > 0;
+                        const hasPreviewCallback = callbacks && callbacks.length > 0;
+
+                        // 如果有下载意图,强制使用 StreamSaver(真实下载)
+                        // 否则,如果有预览回调,则是预览模式
+                        const isPreview = !hasDownloadIntent && hasPreviewCallback;
+
+                        // 清除下载意图标记
+                        if (hasDownloadIntent) {
+                            downloadIntents.current.delete(id);
+                        }
 
                         // 只有在非预览模式下才设置下载状态和启动 StreamSaver
                         if (!isPreview) {
@@ -559,9 +571,15 @@ export function SFTPProvider({ children }: { children: React.ReactNode }) {
         });
     };
 
+    // 用于标记真实下载意图的 Map
+    const downloadIntents = useRef<Set<string>>(new Set());
+
     const downloadFile = (id: string, remotePath: string, fileName: string) => {
         const session = sessionsRef.current[id];
         if (!session?.socket || session.socket.readyState !== WebSocket.OPEN) return;
+
+        // 标记这是一个真实的下载意图
+        downloadIntents.current.add(id);
 
         updateSession(id, { downloadingFileName: fileName, downloadProgress: 0 });
         session.socket.send(JSON.stringify({ type: 'download_file', path: remotePath }));
